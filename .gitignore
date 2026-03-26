@@ -1,0 +1,37 @@
+# ESPHome build output
+.esphome/
+.esphome/build/
+.esphome/storage/
+
+# ESPHome secrets and generated local config
+firmware/esphome/secrets.yaml
+firmware/esphome/*.local.yaml
+firmware/esphome/.esphome/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Logs and local outputs
+*.log
+build/
+dist/
+coverage/
+
+# Misc local files
+*.bak
+*.tmp

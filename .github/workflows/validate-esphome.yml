@@ -1,0 +1,28 @@
+name: Validate ESPHome
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ESPHome
+        run: pip install esphome
+
+      - name: Prepare example secrets
+        run: cp firmware/esphome/secrets.example.yaml firmware/esphome/secrets.yaml
+
+      - name: Validate config
+        run: esphome config firmware/esphome/device.yaml
