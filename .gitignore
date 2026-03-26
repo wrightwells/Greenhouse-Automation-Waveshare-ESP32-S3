@@ -35,3 +35,9 @@ coverage/
 # Misc local files
 *.bak
 *.tmp
+
+# Node / frontend prototype
+node_modules/
+prototype/web-ui/node_modules/
+prototype/web-ui/dist/
+*.tsbuildinfo

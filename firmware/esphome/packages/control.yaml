@@ -1,0 +1,664 @@
+globals:
+  - id: automation_enabled
+    type: bool
+    restore_value: yes
+    initial_value: "true"
+  - id: manual_mode_active
+    type: bool
+    restore_value: yes
+    initial_value: "false"
+  - id: irrigation_fault_active
+    type: bool
+    restore_value: yes
+    initial_value: "false"
+  - id: ota_in_progress
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: window_motion_direction
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: last_motion_update_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: window_motion_target
+    type: float
+    restore_value: yes
+    initial_value: "0.0"
+  - id: window_position_estimate
+    type: float
+    restore_value: yes
+    initial_value: "0.0"
+  - id: irrigation_run_seconds
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: irrigation_cooldown_remaining_seconds
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: irrigation_settle_remaining_seconds
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: last_failure_reason
+    type: std::string
+    restore_value: yes
+    initial_value: '"none"'
+
+switch:
+  - platform: gpio
+    id: relay_window_open
+    name: "${friendly_name} Window Open Relay"
+    pin: GPIO1
+    restore_mode: ALWAYS_OFF
+    icon: mdi:window-open-variant
+
+  - platform: gpio
+    id: relay_window_close
+    name: "${friendly_name} Window Close Relay"
+    pin: GPIO2
+    restore_mode: ALWAYS_OFF
+    icon: mdi:window-closed-variant
+
+  - platform: gpio
+    id: relay_intake_fan
+    name: "${friendly_name} Intake Fan Relay"
+    pin: GPIO3
+    restore_mode: ALWAYS_OFF
+    icon: mdi:fan
+
+  - platform: gpio
+    id: relay_exhaust_fan
+    name: "${friendly_name} Exhaust Fan Relay"
+    pin: GPIO4
+    restore_mode: ALWAYS_OFF
+    icon: mdi:fan
+
+  - platform: gpio
+    id: relay_irrigation_pump
+    name: "${friendly_name} Irrigation Pump Relay"
+    pin: GPIO5
+    restore_mode: ALWAYS_OFF
+    icon: mdi:water-pump
+    on_turn_on:
+      - lambda: |-
+          id(irrigation_fault_active) = false;
+          id(last_failure_reason) = "none";
+          id(irrigation_run_seconds) = 0;
+    on_turn_off:
+      - lambda: |-
+          if (id(irrigation_run_seconds) >= int(id(irrigation_min_run_seconds).state)) {
+            id(irrigation_cooldown_remaining_seconds) = int(id(irrigation_cooldown_seconds).state);
+            id(irrigation_settle_remaining_seconds) = int(id(soil_moisture_settle_delay_seconds).state);
+          }
+          id(irrigation_run_seconds) = 0;
+
+  - platform: template
+    id: automation_enable
+    name: "${friendly_name} Automation Enable"
+    restore_mode: RESTORE_DEFAULT_ON
+    lambda: |-
+      return id(automation_enabled);
+    turn_on_action:
+      - lambda: |-
+          id(automation_enabled) = true;
+          id(last_failure_reason) = "none";
+    turn_off_action:
+      - lambda: |-
+          id(automation_enabled) = false;
+          id(last_failure_reason) = "automation_disabled";
+      - script.execute: safe_all_outputs_off
+
+  - platform: template
+    id: manual_mode_switch
+    name: "${friendly_name} Manual Maintenance Mode"
+    restore_mode: RESTORE_DEFAULT_OFF
+    lambda: |-
+      return id(manual_mode_active);
+    turn_on_action:
+      - lambda: |-
+          id(manual_mode_active) = true;
+          id(last_failure_reason) = "manual_mode";
+      - script.execute: safe_all_outputs_off
+    turn_off_action:
+      - lambda: |-
+          id(manual_mode_active) = false;
+          if (id(last_failure_reason) == "manual_mode") {
+            id(last_failure_reason) = "none";
+          }
+
+  - platform: template
+    id: display_enable
+    name: "${friendly_name} Display Enable"
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+    entity_category: config
+
+number:
+  - platform: template
+    id: ventilation_open_threshold
+    name: "${friendly_name} Ventilation Open Threshold"
+    optimistic: true
+    restore_value: true
+    min_value: 10
+    max_value: 45
+    step: 0.5
+    initial_value: 28
+    unit_of_measurement: "°C"
+    mode: box
+
+  - platform: template
+    id: ventilation_close_threshold
+    name: "${friendly_name} Ventilation Close Threshold"
+    optimistic: true
+    restore_value: true
+    min_value: 5
+    max_value: 40
+    step: 0.5
+    initial_value: 24
+    unit_of_measurement: "°C"
+    mode: box
+
+  - platform: template
+    id: soil_moisture_min_threshold
+    name: "${friendly_name} Soil Moisture Minimum Threshold"
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 35
+    unit_of_measurement: "%"
+    mode: box
+
+  - platform: template
+    id: irrigation_min_run_seconds
+    name: "${friendly_name} Irrigation Minimum Run Time"
+    optimistic: true
+    restore_value: true
+    min_value: 5
+    max_value: 600
+    step: 5
+    initial_value: 30
+    unit_of_measurement: "s"
+    mode: box
+
+  - platform: template
+    id: irrigation_max_run_seconds
+    name: "${friendly_name} Irrigation Maximum Run Time"
+    optimistic: true
+    restore_value: true
+    min_value: 10
+    max_value: 1800
+    step: 10
+    initial_value: 180
+    unit_of_measurement: "s"
+    mode: box
+
+  - platform: template
+    id: irrigation_cooldown_seconds
+    name: "${friendly_name} Irrigation Cooldown"
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 7200
+    step: 30
+    initial_value: 900
+    unit_of_measurement: "s"
+    mode: box
+
+  - platform: template
+    id: soil_moisture_settle_delay_seconds
+    name: "${friendly_name} Soil Moisture Settle Delay"
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 3600
+    step: 30
+    initial_value: 300
+    unit_of_measurement: "s"
+    mode: box
+
+  - platform: template
+    id: full_window_open_time_seconds
+    name: "${friendly_name} Full Window Open Travel Time"
+    optimistic: true
+    restore_value: true
+    min_value: 5
+    max_value: 600
+    step: 1
+    initial_value: 60
+    unit_of_measurement: "s"
+    mode: box
+
+  - platform: template
+    id: full_window_close_time_seconds
+    name: "${friendly_name} Full Window Close Travel Time"
+    optimistic: true
+    restore_value: true
+    min_value: 5
+    max_value: 600
+    step: 1
+    initial_value: 60
+    unit_of_measurement: "s"
+    mode: box
+
+  - platform: template
+    id: requested_window_position
+    name: "${friendly_name} Requested Window Position"
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 0
+    unit_of_measurement: "%"
+    mode: slider
+    set_action:
+      - lambda: |-
+          id(window_motion_target) = x;
+      - script.execute: evaluate_window_target
+
+  - platform: template
+    id: soil_moisture_wet_calibration
+    name: "${friendly_name} Soil Moisture Wet Calibration"
+    optimistic: true
+    restore_value: true
+    min_value: 0.0
+    max_value: 3.3
+    step: 0.01
+    initial_value: 1.1
+    mode: box
+    entity_category: config
+
+  - platform: template
+    id: soil_moisture_dry_calibration
+    name: "${friendly_name} Soil Moisture Dry Calibration"
+    optimistic: true
+    restore_value: true
+    min_value: 0.0
+    max_value: 3.3
+    step: 0.01
+    initial_value: 2.6
+    mode: box
+    entity_category: config
+
+  - platform: template
+    id: flow_pulses_per_litre
+    name: "${friendly_name} Flow Pulses Per Litre"
+    optimistic: true
+    restore_value: true
+    min_value: 1
+    max_value: 2000
+    step: 1
+    initial_value: 450
+    mode: box
+    entity_category: config
+
+select:
+  - platform: template
+    id: actuator_mode
+    name: "${friendly_name} Actuator Mode"
+    optimistic: true
+    restore_value: true
+    options:
+      - two_relay_tandem
+      - single_relay
+    initial_option: two_relay_tandem
+    entity_category: config
+
+  - platform: template
+    id: display_page_selection
+    name: "${friendly_name} Display Page Selection"
+    optimistic: true
+    restore_value: true
+    options:
+      - environmental
+      - irrigation
+      - diagnostics
+    initial_option: environmental
+    entity_category: config
+
+button:
+  - platform: restart
+    name: "${friendly_name} Restart Device"
+    entity_category: config
+
+  - platform: factory_reset
+    name: "${friendly_name} Factory Reset"
+    entity_category: config
+
+  - platform: template
+    name: "${friendly_name} Cancel Manual Mode"
+    on_press:
+      - switch.turn_off: manual_mode_switch
+
+  - platform: template
+    name: "${friendly_name} Fully Open Window"
+    on_press:
+      - number.set:
+          id: requested_window_position
+          value: 100
+      - script.execute: evaluate_window_target
+
+  - platform: template
+    name: "${friendly_name} Fully Close Window"
+    on_press:
+      - number.set:
+          id: requested_window_position
+          value: 0
+      - script.execute: evaluate_window_target
+
+  - platform: template
+    name: "${friendly_name} Stop Window"
+    on_press:
+      - script.execute: stop_window_motion
+
+script:
+  - id: safe_all_outputs_off
+    mode: restart
+    then:
+      - switch.turn_off: relay_window_open
+      - switch.turn_off: relay_window_close
+      - switch.turn_off: relay_intake_fan
+      - switch.turn_off: relay_exhaust_fan
+      - switch.turn_off: relay_irrigation_pump
+      - lambda: |-
+          id(window_motion_direction) = 0;
+          id(irrigation_run_seconds) = 0;
+
+  - id: stop_window_motion
+    mode: restart
+    then:
+      - lambda: |-
+          const uint32_t now = millis();
+          if (id(window_motion_direction) != 0) {
+            const uint32_t elapsed = now - id(last_motion_update_ms);
+            const float duration = id(window_motion_direction) > 0
+              ? id(full_window_open_time_seconds).state
+              : id(full_window_close_time_seconds).state;
+            if (duration > 0.0f) {
+              const float delta = (float(elapsed) / (duration * 1000.0f)) * 100.0f;
+              if (id(window_motion_direction) > 0) {
+                id(window_position_estimate) += delta;
+              } else {
+                id(window_position_estimate) -= delta;
+              }
+            }
+          }
+          if (id(window_position_estimate) < 0.0f) {
+            id(window_position_estimate) = 0.0f;
+          }
+          if (id(window_position_estimate) > 100.0f) {
+            id(window_position_estimate) = 100.0f;
+          }
+          id(window_motion_direction) = 0;
+          id(last_motion_update_ms) = now;
+      - switch.turn_off: relay_window_open
+      - switch.turn_off: relay_window_close
+
+  - id: start_window_open_motion
+    mode: restart
+    then:
+      - script.execute: stop_window_motion
+      - if:
+          condition:
+            lambda: 'return id(ota_in_progress);'
+          then:
+            - lambda: 'id(last_failure_reason) = "ota_in_progress";'
+          else:
+            - lambda: |-
+                id(window_motion_direction) = 1;
+                id(last_motion_update_ms) = millis();
+            - switch.turn_off: relay_window_close
+            - switch.turn_on: relay_window_open
+
+  - id: start_window_close_motion
+    mode: restart
+    then:
+      - script.execute: stop_window_motion
+      - if:
+          condition:
+            lambda: 'return id(ota_in_progress);'
+          then:
+            - lambda: 'id(last_failure_reason) = "ota_in_progress";'
+          else:
+            - lambda: |-
+                id(window_motion_direction) = -1;
+                id(last_motion_update_ms) = millis();
+            - switch.turn_off: relay_window_open
+            - switch.turn_on: relay_window_close
+
+  - id: evaluate_window_target
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(ota_in_progress) || !id(automation_enabled);
+          then:
+            - script.execute: stop_window_motion
+          else:
+            - if:
+                condition:
+                  lambda: 'return fabsf(id(window_motion_target) - id(window_position_estimate)) <= 1.0f;'
+                then:
+                  - script.execute: stop_window_motion
+                else:
+                  - if:
+                      condition:
+                        lambda: 'return id(window_motion_target) > id(window_position_estimate);'
+                      then:
+                        - script.execute: start_window_open_motion
+                      else:
+                        - script.execute: start_window_close_motion
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (id(irrigation_cooldown_remaining_seconds) > 0) {
+            id(irrigation_cooldown_remaining_seconds)--;
+          }
+          if (id(irrigation_settle_remaining_seconds) > 0) {
+            id(irrigation_settle_remaining_seconds)--;
+          }
+          if (id(window_motion_direction) == 0) {
+            return;
+          }
+          const uint32_t now = millis();
+          const uint32_t elapsed = now - id(last_motion_update_ms);
+          const float duration = id(window_motion_direction) > 0
+            ? id(full_window_open_time_seconds).state
+            : id(full_window_close_time_seconds).state;
+          if (duration > 0.0f) {
+            const float delta = (float(elapsed) / (duration * 1000.0f)) * 100.0f;
+            if (id(window_motion_direction) > 0) {
+              id(window_position_estimate) += delta;
+            } else {
+              id(window_position_estimate) -= delta;
+            }
+          }
+          if (id(window_position_estimate) < 0.0f) {
+            id(window_position_estimate) = 0.0f;
+          }
+          if (id(window_position_estimate) > 100.0f) {
+            id(window_position_estimate) = 100.0f;
+          }
+          id(last_motion_update_ms) = now;
+
+      - if:
+          condition:
+            lambda: |-
+              return id(window_motion_direction) != 0 &&
+                (fabsf(id(window_motion_target) - id(window_position_estimate)) <= 1.0f ||
+                 id(window_position_estimate) <= 0.0f ||
+                 id(window_position_estimate) >= 100.0f);
+          then:
+            - script.execute: stop_window_motion
+
+      - if:
+          condition:
+            switch.is_on: relay_irrigation_pump
+          then:
+            - lambda: |-
+                id(irrigation_run_seconds)++;
+          else:
+            - lambda: |-
+                id(irrigation_run_seconds) = 0;
+
+  - interval: 15s
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(automation_enabled) && !id(manual_mode_active) && !id(ota_in_progress);
+          then:
+            - if:
+                condition:
+                  lambda: |-
+                    return !id(high_air_temperature).has_state();
+                then:
+                  - switch.turn_off: relay_intake_fan
+                  - switch.turn_off: relay_exhaust_fan
+                  - lambda: |-
+                      id(window_motion_target) = 0.0f;
+                      id(last_failure_reason) = "high_temp_sensor_unavailable";
+                  - script.execute: stop_window_motion
+
+            - if:
+                condition:
+                  lambda: |-
+                    return id(high_air_temperature).has_state() &&
+                      id(high_air_temperature).state >= id(ventilation_open_threshold).state;
+                then:
+                  - switch.turn_on: relay_intake_fan
+                  - switch.turn_on: relay_exhaust_fan
+                  - lambda: |-
+                      if (id(window_motion_target) < 100.0f) {
+                        id(window_motion_target) = 100.0f;
+                      }
+                  - script.execute: evaluate_window_target
+                else:
+                  - if:
+                      condition:
+                        lambda: |-
+                          return id(high_air_temperature).has_state() &&
+                            id(high_air_temperature).state <= id(ventilation_close_threshold).state;
+                      then:
+                        - switch.turn_off: relay_intake_fan
+                        - switch.turn_off: relay_exhaust_fan
+                        - lambda: |-
+                            if (id(window_motion_target) > 0.0f) {
+                              id(window_motion_target) = 0.0f;
+                            }
+                        - script.execute: evaluate_window_target
+
+            - if:
+                condition:
+                  lambda: |-
+                    return !id(soil_moisture_percent).has_state();
+                then:
+                  - lambda: |-
+                      id(last_failure_reason) = "soil_moisture_sensor_unavailable";
+                  - switch.turn_off: relay_irrigation_pump
+
+            - if:
+                condition:
+                  lambda: |-
+                    return id(soil_moisture_percent).has_state() &&
+                      id(soil_moisture_percent).state < id(soil_moisture_min_threshold).state &&
+                      id(irrigation_cooldown_remaining_seconds) == 0 &&
+                      id(irrigation_settle_remaining_seconds) == 0 &&
+                      !id(irrigation_fault_active);
+                then:
+                  - switch.turn_on: relay_irrigation_pump
+
+      - if:
+          condition:
+            switch.is_on: relay_irrigation_pump
+          then:
+            - if:
+                condition:
+                  lambda: |-
+                    return id(flow_rate_lpm).has_state() && id(flow_rate_lpm).state <= 0.01f &&
+                      id(irrigation_run_seconds) >= int(id(irrigation_min_run_seconds).state);
+                then:
+                  - lambda: |-
+                      id(irrigation_fault_active) = true;
+                      id(last_failure_reason) = "irrigation_no_flow";
+                  - switch.turn_off: relay_irrigation_pump
+
+            - if:
+                condition:
+                  lambda: |-
+                    return id(irrigation_run_seconds) >= int(id(irrigation_max_run_seconds).state);
+                then:
+                  - switch.turn_off: relay_irrigation_pump
+
+      - if:
+          condition:
+            lambda: |-
+              return !id(automation_enabled) || id(manual_mode_active) || id(ota_in_progress);
+          then:
+            - script.execute: safe_all_outputs_off
+
+  - interval: 20s
+    then:
+      - script.execute: evaluate_window_target
+
+sensor:
+  - platform: template
+    id: estimated_window_position_sensor
+    name: "${friendly_name} Estimated Window Position"
+    unit_of_measurement: "%"
+    state_class: measurement
+    accuracy_decimals: 1
+    lambda: |-
+      return id(window_position_estimate);
+    update_interval: 5s
+
+  - platform: template
+    id: irrigation_cooldown_remaining_sensor
+    name: "${friendly_name} Irrigation Cooldown Remaining"
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    lambda: |-
+      return id(irrigation_cooldown_remaining_seconds);
+    update_interval: 5s
+
+  - platform: template
+    id: soil_moisture_settle_remaining_sensor
+    name: "${friendly_name} Soil Moisture Settle Delay Remaining"
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    lambda: |-
+      return id(irrigation_settle_remaining_seconds);
+    update_interval: 5s
+
+  - platform: template
+    id: irrigation_run_seconds_sensor
+    name: "${friendly_name} Irrigation Run Time"
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    lambda: |-
+      return id(irrigation_run_seconds);
+    update_interval: 5s
+
+binary_sensor:
+  - platform: template
+    id: manual_mode_active_binary
+    name: "${friendly_name} Manual Maintenance Mode Active"
+    lambda: |-
+      return id(manual_mode_active);
+    device_class: running
+
+  - platform: template
+    id: irrigation_fault_active_binary
+    name: "${friendly_name} Irrigation Fault Active"
+    lambda: |-
+      return id(irrigation_fault_active);
+    device_class: problem

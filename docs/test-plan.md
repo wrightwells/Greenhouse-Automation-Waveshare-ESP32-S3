@@ -88,3 +88,24 @@ Validation should combine:
 ## Expansion
 
 As implementation progresses, expand this file into runnable test procedures and link per-area notes under `test/bench`, `test/integration`, and `test/ota`.
+
+## Current Validation Notes
+
+The repository now includes a first implementation pass for:
+
+- safe boot output shutdown
+- relay entities for all five controlled outputs
+- template-based maintenance and automation controls
+- DHT22, DS18B20, soil moisture, flow, and reed-switch entities
+- timed window position estimation
+- basic ventilation and irrigation automation loops
+- OTA safe-state hook handling
+- connectivity and fault diagnostics
+
+Immediate next validation priorities:
+
+- confirm the exact Waveshare Ethernet and relay pin mapping
+- run `esphome config firmware/esphome/device.yaml` once the ESPHome CLI is installed
+- bench-test relay polarity and interlocking before connecting real loads
+- verify flow sensor scaling and soil moisture calibration against actual hardware
+- verify whether Ethernet and AP recovery behavior fully match the target board and ESPHome version

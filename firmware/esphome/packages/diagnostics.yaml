@@ -1,0 +1,108 @@
+binary_sensor:
+  - platform: status
+    id: controller_status
+    name: "${friendly_name} Status"
+    entity_category: diagnostic
+
+  - platform: template
+    id: ethernet_connected
+    name: "${friendly_name} Ethernet Connected"
+    entity_category: diagnostic
+    lambda: |-
+      return id(ethernet_ip_address).state.length() > 0;
+    device_class: connectivity
+
+  - platform: template
+    id: wifi_connected
+    name: "${friendly_name} Wi-Fi Connected"
+    entity_category: diagnostic
+    lambda: |-
+      return id(wifi_ip_address).state.length() > 0;
+    device_class: connectivity
+
+  - platform: template
+    id: ap_mode_active
+    name: "${friendly_name} AP Recovery Mode Active"
+    entity_category: diagnostic
+    lambda: |-
+      return id(ethernet_ip_address).state.length() == 0 &&
+        id(wifi_ip_address).state.length() == 0;
+    device_class: connectivity
+
+  - platform: template
+    id: sensor_fault_active
+    name: "${friendly_name} Sensor Fault Active"
+    entity_category: diagnostic
+    lambda: |-
+      return !id(high_air_temperature).has_state() ||
+        !id(low_air_temperature).has_state() ||
+        !id(intake_air_temperature).has_state() ||
+        !id(soil_moisture_percent).has_state();
+    device_class: problem
+
+sensor:
+  - platform: wifi_signal
+    id: wifi_rssi
+    name: "${friendly_name} Wi-Fi RSSI"
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: uptime
+    id: uptime_seconds
+    name: "${friendly_name} Uptime"
+    update_interval: 60s
+    entity_category: diagnostic
+
+text_sensor:
+  - platform: version
+    name: "${friendly_name} ESPHome Version"
+    entity_category: diagnostic
+
+  - platform: ethernet_info
+    ip_address:
+      id: ethernet_ip_address
+      name: "${friendly_name} Ethernet IP Address"
+      entity_category: diagnostic
+
+  - platform: wifi_info
+    ip_address:
+      id: wifi_ip_address
+      name: "${friendly_name} Wi-Fi IP Address"
+      entity_category: diagnostic
+    ssid:
+      id: wifi_ssid_connected
+      name: "${friendly_name} Wi-Fi SSID"
+      entity_category: diagnostic
+
+  - platform: template
+    id: current_network_mode
+    name: "${friendly_name} Current Network Mode"
+    entity_category: diagnostic
+    lambda: |-
+      if (id(ethernet_ip_address).state.length() > 0) {
+        return {"ethernet"};
+      }
+      if (id(wifi_ip_address).state.length() > 0) {
+        return {"wifi_client"};
+      }
+      return {"ap_recovery"};
+    update_interval: 10s
+
+  - platform: template
+    id: manual_mode_status
+    name: "${friendly_name} Manual Mode Status"
+    entity_category: diagnostic
+    lambda: |-
+      if (id(manual_mode_active)) {
+        return {"manual_mode_active"};
+      }
+      return {"automatic_mode"};
+    update_interval: 10s
+
+  - platform: template
+    id: last_failure_reason_text
+    name: "${friendly_name} Last Failure Reason"
+    entity_category: diagnostic
+    lambda: |-
+      return {id(last_failure_reason)};
+    update_interval: 10s

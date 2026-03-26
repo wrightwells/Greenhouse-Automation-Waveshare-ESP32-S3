@@ -2,8 +2,7 @@ substitutions:
   device_slug: greenhouse_controller
   friendly_name: Greenhouse Controller
   project_name: wrightwells.greenhouse_controller
-  project_version: "0.1.0"
-  room_name: greenhouse
+  project_version: "0.2.0"
 
 esphome:
   name: ${device_slug}
@@ -15,26 +14,44 @@ esphome:
   on_boot:
     priority: 800
     then:
-      - switch.turn_off: relay_window_open
-      - switch.turn_off: relay_window_close
-      - switch.turn_off: relay_intake_fan
-      - switch.turn_off: relay_exhaust_fan
-      - switch.turn_off: relay_irrigation_pump
+      - script.execute: safe_all_outputs_off
+      - lambda: |-
+          id(last_failure_reason) = "none";
+          id(window_motion_direction) = 0;
+          id(window_motion_target) = id(window_position_estimate);
+          id(last_motion_update_ms) = millis();
 
 esp32:
   board: esp32-s3-devkitc-1
   framework:
     type: esp-idf
 
+preferences:
+  flash_write_interval: 1min
+
 logger:
 
 api:
+  reboot_timeout: 0s
   encryption:
     key: !secret api_encryption_key
 
 ota:
   - platform: esphome
     password: !secret ota_password
+    on_begin:
+      then:
+        - lambda: |-
+            id(ota_in_progress) = true;
+            id(last_failure_reason) = "ota_in_progress";
+        - script.execute: safe_all_outputs_off
+    on_end:
+      then:
+        - lambda: |-
+            id(ota_in_progress) = false;
+            id(last_failure_reason) = "none";
+
+safe_mode:
 
 ethernet:
   type: W5500
@@ -54,6 +71,20 @@ wifi:
 
 captive_portal:
 
+mqtt:
+  broker: !secret mqtt_host
+  port: !secret mqtt_port
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  topic_prefix: !secret mqtt_topic_prefix
+  reboot_timeout: 0s
+  birth_message:
+    topic: ${device_slug}/status
+    payload: online
+  will_message:
+    topic: ${device_slug}/status
+    payload: offline
+
 web_server:
   port: 80
   version: 3
@@ -63,92 +94,6 @@ time:
     id: ha_time
 
 packages:
-  base: !include packages/base.yaml
-
-globals:
-  - id: manual_mode_active
-    type: bool
-    restore_value: yes
-    initial_value: "false"
-  - id: irrigation_fault_active
-    type: bool
-    restore_value: yes
-    initial_value: "false"
-
-switch:
-  - platform: gpio
-    id: relay_window_open
-    name: "${friendly_name} Window Open Relay"
-    pin: GPIO1
-    restore_mode: ALWAYS_OFF
-  - platform: gpio
-    id: relay_window_close
-    name: "${friendly_name} Window Close Relay"
-    pin: GPIO2
-    restore_mode: ALWAYS_OFF
-  - platform: gpio
-    id: relay_intake_fan
-    name: "${friendly_name} Intake Fan Relay"
-    pin: GPIO3
-    restore_mode: ALWAYS_OFF
-  - platform: gpio
-    id: relay_exhaust_fan
-    name: "${friendly_name} Exhaust Fan Relay"
-    pin: GPIO4
-    restore_mode: ALWAYS_OFF
-  - platform: gpio
-    id: relay_irrigation_pump
-    name: "${friendly_name} Irrigation Pump Relay"
-    pin: GPIO5
-    restore_mode: ALWAYS_OFF
-
-button:
-  - platform: restart
-    name: "${friendly_name} Restart"
-
-binary_sensor:
-  - platform: status
-    name: "${friendly_name} Status"
-
-sensor:
-  - platform: wifi_signal
-    name: "${friendly_name} Wi-Fi RSSI"
-    update_interval: 60s
-  - platform: uptime
-    name: "${friendly_name} Uptime"
-
-text_sensor:
-  - platform: version
-    name: "${friendly_name} ESPHome Version"
-  - platform: ethernet_info
-    ip_address:
-      name: "${friendly_name} Ethernet IP"
-
-number:
-  - platform: template
-    id: ventilation_temp_threshold
-    name: "${friendly_name} Ventilation Temperature Threshold"
-    optimistic: true
-    restore_value: true
-    min_value: 15
-    max_value: 45
-    step: 0.5
-    initial_value: 28
-  - platform: template
-    id: requested_window_position
-    name: "${friendly_name} Requested Window Position"
-    optimistic: true
-    restore_value: true
-    min_value: 0
-    max_value: 100
-    step: 1
-    initial_value: 0
-
-script:
-  - id: safe_all_outputs_off
-    then:
-      - switch.turn_off: relay_window_open
-      - switch.turn_off: relay_window_close
-      - switch.turn_off: relay_intake_fan
-      - switch.turn_off: relay_exhaust_fan
-      - switch.turn_off: relay_irrigation_pump
+  sensors: !include packages/sensors.yaml
+  control: !include packages/control.yaml
+  diagnostics: !include packages/diagnostics.yaml

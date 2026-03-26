@@ -56,6 +56,12 @@ Use [firmware/esphome/secrets.example.yaml](/home/ww/src/Greenhouse-Automation-W
 
 Project-specific settings that are expected to evolve live in [firmware/esphome/device.yaml](/home/ww/src/Greenhouse-Automation-Waveshare-ESP32-S3/firmware/esphome/device.yaml). Hardware pin assumptions should be validated before deployment.
 
+Current package layout:
+
+- `packages/sensors.yaml`: environmental and input sensors
+- `packages/control.yaml`: relays, automation controls, window logic, and irrigation state
+- `packages/diagnostics.yaml`: connectivity, fault, and runtime diagnostics
+
 ## Build, Validate, and Deploy
 
 Basic local workflow:
@@ -107,3 +113,24 @@ See [docs/home-assistant-integration.md](/home/ww/src/Greenhouse-Automation-Wave
 - safe boot and fault handling take priority over feature breadth
 - pin mapping and optional hardware features should remain adjustable without large rewrites
 - custom components are reserved for requirements ESPHome cannot express cleanly
+
+## Current Implementation Status
+
+Implemented in the current ESPHome configuration:
+
+- safe boot with all five controlled outputs forced OFF
+- Ethernet, Wi-Fi, captive portal, web server, API, OTA, and MQTT scaffolding
+- environmental sensors for two DHT22 inputs, one DS18B20, soil moisture, flow, and reed switch
+- Home Assistant friendly entities for relays, buttons, numbers, selects, diagnostics, and template state
+- estimated window position state with timed open/close motion tracking
+- basic threshold-based ventilation automation
+- basic soil-moisture-based irrigation automation with cooldown, settle delay, and no-flow fault handling
+- OTA begin-hook safe state handling
+
+Current assumptions and known implementation limits:
+
+- relay GPIO mapping and Ethernet pins are still placeholders until exact board validation
+- ESPHome web server currently serves as the local status/admin surface for the first implementation pass
+- simultaneous Ethernet plus dedicated Wi-Fi AP behavior may require follow-up validation or targeted customization
+- display hardware is not implemented yet because the exact display model and bus were left open in the specification
+- single-relay actuator mode is exposed as a configuration option, but final hardware-specific behavior still needs validation

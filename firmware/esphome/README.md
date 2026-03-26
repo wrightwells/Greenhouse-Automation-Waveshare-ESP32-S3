@@ -5,7 +5,9 @@ This directory contains the ESPHome-first firmware scaffold for the greenhouse c
 ## Files
 
 - `device.yaml`: main node configuration and high-level services
-- `packages/base.yaml`: early shared sensor and IO scaffold
+- `packages/sensors.yaml`: sensor and input definitions
+- `packages/control.yaml`: relays, automation controls, and window/irrigation logic
+- `packages/diagnostics.yaml`: connectivity and diagnostic entities
 - `secrets.example.yaml`: template for local secrets
 
 ## Workflow
@@ -21,3 +23,5 @@ This directory contains the ESPHome-first firmware scaffold for the greenhouse c
 - current pin assignments are planning placeholders and must be validated
 - `restore_mode: ALWAYS_OFF` is used for safety on controlled outputs
 - custom components should only be added if the required behaviour cannot be expressed cleanly with ESPHome-native features
+- first-pass local admin/status access is provided by the ESPHome web server and exposed entities
+- display support remains a follow-up once the exact hardware model is fixed
