@@ -12,6 +12,8 @@ It helps validate:
 - status information hierarchy
 - configuration grouping and validation
 - manual override and maintenance flows
+- local rule-table editing UX
+- local event log viewer UX
 - recovery / AP setup flow
 - OTA/admin interaction patterns
 
@@ -38,3 +40,6 @@ Then open the Vite URL shown in the terminal, usually `http://localhost:5173`.
 - State is mocked and persisted only in the browser.
 - Secrets shown here are placeholders and should never be copied into source control.
 - The final embedded UI will need tighter resource usage, simpler rendering, and a real persistence layer appropriate for the ESP32 implementation.
+- Rule editor and event log viewer pages are now included in the prototype.
+- The prototype log uses a hard bounded capacity and rollover pruning so log growth cannot exhaust browser memory during testing.
+- Home Assistant should remain a supervisory writer of values and profiles, not the real-time actuation engine.

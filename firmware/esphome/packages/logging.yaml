@@ -1,0 +1,285 @@
+globals:
+  - id: event_logging_enabled
+    type: bool
+    restore_value: yes
+    initial_value: "true"
+  - id: last_sensor_fault_state_logged
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: logging_faulted
+    type: bool
+    restore_value: yes
+    initial_value: "false"
+  - id: logging_pruning_active
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: event_log_entry_count
+    type: int
+    restore_value: yes
+    initial_value: "0"
+  - id: event_log_capacity_entries
+    type: int
+    restore_value: yes
+    initial_value: "256"
+  - id: event_log_rollover_count
+    type: int
+    restore_value: yes
+    initial_value: "0"
+  - id: oldest_retained_log_timestamp
+    type: std::string
+    restore_value: yes
+    initial_value: '"n/a"'
+  - id: newest_retained_log_timestamp
+    type: std::string
+    restore_value: yes
+    initial_value: '"n/a"'
+  - id: last_log_prune_result
+    type: std::string
+    restore_value: yes
+    initial_value: '"never_pruned"'
+  - id: last_irrigation_event_time
+    type: std::string
+    restore_value: yes
+    initial_value: '"never"'
+  - id: last_ventilation_event_time
+    type: std::string
+    restore_value: yes
+    initial_value: '"never"'
+  - id: last_window_action_time
+    type: std::string
+    restore_value: yes
+    initial_value: '"never"'
+
+switch:
+  - platform: template
+    id: event_logging_enable
+    name: "${friendly_name} Event Logging Enable"
+    restore_mode: RESTORE_DEFAULT_ON
+    lambda: |-
+      return id(event_logging_enabled);
+    turn_on_action:
+      - lambda: |-
+          id(event_logging_enabled) = true;
+          id(last_automation_action) = "event_logging_enabled";
+      - script.execute: note_log_event_rollover
+    turn_off_action:
+      - lambda: |-
+          id(event_logging_enabled) = false;
+          id(last_automation_action) = "event_logging_disabled";
+
+number:
+  - platform: template
+    id: event_log_retention_days
+    name: "${friendly_name} Event Log Retention"
+    optimistic: true
+    restore_value: true
+    min_value: 1
+    max_value: 7
+    step: 1
+    initial_value: 7
+    unit_of_measurement: "days"
+    mode: box
+    entity_category: config
+    set_action:
+      - lambda: |-
+          id(runtime_store).set_retention_days(uint8_t(x));
+          id(last_automation_action) = "event_log_retention_updated";
+      - script.execute: note_log_event_rollover
+
+  - platform: template
+    id: minimum_state_change_logging_interval_seconds
+    name: "${friendly_name} Minimum State-Change Logging Interval"
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 600
+    step: 1
+    initial_value: 5
+    unit_of_measurement: "s"
+    mode: box
+    entity_category: config
+
+  - platform: template
+    id: log_pruning_interval_seconds
+    name: "${friendly_name} Log Pruning Interval"
+    optimistic: true
+    restore_value: true
+    min_value: 60
+    max_value: 86400
+    step: 60
+    initial_value: 3600
+    unit_of_measurement: "s"
+    mode: box
+    entity_category: config
+
+  - platform: template
+    id: event_log_capacity_entries_setting
+    name: "${friendly_name} Event Log Capacity"
+    optimistic: true
+    restore_value: true
+    min_value: 32
+    max_value: 1024
+    step: 32
+    initial_value: 256
+    unit_of_measurement: "entries"
+    mode: box
+    entity_category: config
+    set_action:
+      - lambda: |-
+          id(event_log_capacity_entries) = int(x);
+          id(runtime_store).set_max_log_entries(size_t(x));
+          id(last_automation_action) = "event_log_capacity_updated";
+      - script.execute: note_log_event_rollover
+
+sensor:
+  - platform: template
+    id: event_log_entry_count_sensor
+    name: "${friendly_name} Event Log Entry Count"
+    accuracy_decimals: 0
+    lambda: |-
+      return id(runtime_store).get_log_entry_count();
+    update_interval: 15s
+    entity_category: diagnostic
+
+  - platform: template
+    id: event_log_rollover_count_sensor
+    name: "${friendly_name} Event Log Rollover Count"
+    accuracy_decimals: 0
+    lambda: |-
+      return id(runtime_store).get_log_rollover_count();
+    update_interval: 15s
+    entity_category: diagnostic
+
+text_sensor:
+  - platform: template
+    id: oldest_retained_log_timestamp_text
+    name: "${friendly_name} Oldest Retained Log Timestamp"
+    entity_category: diagnostic
+    lambda: |-
+      return {id(runtime_store).get_oldest_retained_timestamp_text()};
+    update_interval: 15s
+
+  - platform: template
+    id: newest_retained_log_timestamp_text
+    name: "${friendly_name} Newest Retained Log Timestamp"
+    entity_category: diagnostic
+    lambda: |-
+      return {id(runtime_store).get_newest_retained_timestamp_text()};
+    update_interval: 15s
+
+  - platform: template
+    id: log_storage_status
+    name: "${friendly_name} Log Storage Status"
+    entity_category: diagnostic
+    lambda: |-
+      if (!id(event_logging_enabled)) {
+        return {"logging_disabled"};
+      }
+      return {id(runtime_store).get_log_storage_status()};
+    update_interval: 10s
+
+  - platform: template
+    id: last_log_prune_result_text
+    name: "${friendly_name} Last Log Prune Result"
+    entity_category: diagnostic
+    lambda: |-
+      return {id(runtime_store).get_last_prune_result()};
+    update_interval: 15s
+
+  - platform: template
+    id: last_irrigation_event_time_text
+    name: "${friendly_name} Last Irrigation Event Time"
+    entity_category: diagnostic
+    lambda: |-
+      return {id(last_irrigation_event_time)};
+    update_interval: 15s
+
+  - platform: template
+    id: last_ventilation_event_time_text
+    name: "${friendly_name} Last Ventilation Event Time"
+    entity_category: diagnostic
+    lambda: |-
+      return {id(last_ventilation_event_time)};
+    update_interval: 15s
+
+  - platform: template
+    id: last_window_action_time_text
+    name: "${friendly_name} Last Window Action Time"
+    entity_category: diagnostic
+    lambda: |-
+      return {id(last_window_action_time)};
+    update_interval: 15s
+
+binary_sensor:
+  - platform: template
+    id: logging_fault_active
+    name: "${friendly_name} Logging Fault Active"
+    entity_category: diagnostic
+    lambda: |-
+      return id(runtime_store).is_logging_faulted();
+    device_class: problem
+
+script:
+  - id: note_log_event_rollover
+    mode: queued
+    then:
+      - lambda: |-
+          id(event_log_entry_count) = id(runtime_store).get_log_entry_count();
+          id(event_log_rollover_count) = id(runtime_store).get_log_rollover_count();
+          id(logging_pruning_active) = id(runtime_store).is_pruning_active();
+          id(logging_faulted) = id(runtime_store).is_logging_faulted();
+          id(oldest_retained_log_timestamp) = id(runtime_store).get_oldest_retained_timestamp_text();
+          id(newest_retained_log_timestamp) = id(runtime_store).get_newest_retained_timestamp_text();
+          id(last_log_prune_result) = id(runtime_store).get_last_prune_result();
+
+  - id: log_sensor_fault_transition
+    mode: restart
+    then:
+      - lambda: |-
+          const bool current_fault = id(sensor_fault_active).state;
+          if (current_fault == id(last_sensor_fault_state_logged)) {
+            return;
+          }
+          id(last_sensor_fault_state_logged) = current_fault;
+          if (!id(event_logging_enabled)) {
+            return;
+          }
+          if (current_fault) {
+            id(runtime_store).log_event("fault", "warn", "sensor fault active", "sensor_monitor");
+          } else {
+            id(runtime_store).log_event("fault", "info", "sensor fault cleared", "sensor_monitor");
+          }
+          id(event_log_entry_count) = id(runtime_store).get_log_entry_count();
+          id(event_log_rollover_count) = id(runtime_store).get_log_rollover_count();
+          id(logging_pruning_active) = id(runtime_store).is_pruning_active();
+          id(logging_faulted) = id(runtime_store).is_logging_faulted();
+          id(oldest_retained_log_timestamp) = id(runtime_store).get_oldest_retained_timestamp_text();
+          id(newest_retained_log_timestamp) = id(runtime_store).get_newest_retained_timestamp_text();
+          id(last_log_prune_result) = id(runtime_store).get_last_prune_result();
+
+interval:
+  - interval: 15s
+    then:
+      - script.execute: log_sensor_fault_transition
+
+  - interval: 30s
+    then:
+      - lambda: |-
+          id(event_log_entry_count) = id(runtime_store).get_log_entry_count();
+          id(event_log_rollover_count) = id(runtime_store).get_log_rollover_count();
+          id(logging_pruning_active) = id(runtime_store).is_pruning_active();
+          id(logging_faulted) = id(runtime_store).is_logging_faulted();
+          id(oldest_retained_log_timestamp) = id(runtime_store).get_oldest_retained_timestamp_text();
+          id(newest_retained_log_timestamp) = id(runtime_store).get_newest_retained_timestamp_text();
+          id(last_log_prune_result) = id(runtime_store).get_last_prune_result();
+
+  - interval: 5min
+    then:
+      - if:
+          condition:
+            lambda: 'return id(logging_pruning_active);'
+          then:
+            - lambda: |-
+                id(logging_pruning_active) = false;

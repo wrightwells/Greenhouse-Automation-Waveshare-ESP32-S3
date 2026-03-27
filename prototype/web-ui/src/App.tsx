@@ -5,12 +5,23 @@ import { defaultDeviceState, storageKey } from "./mock/deviceState";
 import { ConfigurationPage } from "./pages/ConfigurationPage";
 import { ControlsPage } from "./pages/ControlsPage";
 import { DiagnosticsPage } from "./pages/DiagnosticsPage";
+import { LogViewerPage } from "./pages/LogViewerPage";
 import { NetworkPage } from "./pages/NetworkPage";
 import { OtaAdminPage } from "./pages/OtaAdminPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { RecoveryPage } from "./pages/RecoveryPage";
+import { RulesPage } from "./pages/RulesPage";
 import { StatusPage } from "./pages/StatusPage";
-import { DeviceConfig, DeviceState, RouteId, ValidationErrors } from "./types";
+import {
+  DeviceConfig,
+  DeviceState,
+  EventCategory,
+  EventLogEntry,
+  EventLogState,
+  RouteId,
+  RuleRow,
+  ValidationErrors
+} from "./types";
 
 function getInitialRoute(): RouteId {
   const hash = window.location.hash.replace("#", "") as RouteId;
@@ -18,6 +29,8 @@ function getInitialRoute(): RouteId {
     "overview",
     "status",
     "controls",
+    "rules",
+    "logs",
     "configuration",
     "network",
     "recovery",
@@ -39,7 +52,24 @@ function loadState(): DeviceState {
   }
 }
 
-function validateConfig(config: DeviceConfig): ValidationErrors {
+function validateRule(rule: RuleRow): string | undefined {
+  if (!rule.description.trim()) {
+    return "Rule description is required.";
+  }
+  if ((rule.operator === "inside_range" || rule.operator === "outside_range") &&
+    ((rule.rangeMin ?? 0) >= (rule.rangeMax ?? 0))) {
+    return "Range operators require rangeMin to be lower than rangeMax.";
+  }
+  if (rule.action === "request_window_target" && ((rule.actionTarget ?? -1) < 0 || (rule.actionTarget ?? 101) > 100)) {
+    return "Window target actions require an action target between 0 and 100.";
+  }
+  if (rule.cooldownSeconds !== undefined && rule.cooldownSeconds < 0) {
+    return "Cooldown cannot be negative.";
+  }
+  return undefined;
+}
+
+function validateConfig(config: DeviceConfig, rules: RuleRow[]): ValidationErrors {
   const errors: ValidationErrors = {};
 
   for (const field of configFields) {
@@ -88,16 +118,58 @@ function validateConfig(config: DeviceConfig): ValidationErrors {
     errors.fallbackApPassword = "Use at least 8 characters for a realistic AP password.";
   }
 
+  rules.forEach((rule) => {
+    const error = validateRule(rule);
+    if (error) {
+      errors[`rule:${rule.id}`] = error;
+    }
+  });
+
   return errors;
+}
+
+function createEvent(category: EventCategory, message: string, source: EventLogEntry["source"]): EventLogEntry {
+  return {
+    id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    timestamp: new Date().toISOString(),
+    category,
+    source,
+    message
+  };
+}
+
+function applyBoundedEventLog(log: EventLogState, entry: EventLogEntry): EventLogState {
+  const retentionMs = log.retentionDays * 24 * 60 * 60 * 1000;
+  const cutoff = Date.now() - retentionMs;
+  const filtered = [entry, ...log.entries].filter((current) => new Date(current.timestamp).getTime() >= cutoff);
+  const bounded = filtered.slice(0, log.maxEntries);
+  const droppedCount = filtered.length - bounded.length;
+
+  return {
+    ...log,
+    entries: bounded,
+    rolloverCount: log.rolloverCount + Math.max(0, droppedCount),
+    status: droppedCount > 0 ? "pruning_active" : log.status === "disabled" ? "disabled" : "healthy",
+    oldestRetainedTimestamp: bounded.length > 0 ? bounded[bounded.length - 1].timestamp : "",
+    newestRetainedTimestamp: bounded.length > 0 ? bounded[0].timestamp : "",
+    lastLogPruneResult:
+      droppedCount > 0
+        ? `dropped_${droppedCount}_oldest_entries_to_respect_capacity`
+        : "no_prune_needed"
+  };
 }
 
 export default function App() {
   const [route, setRoute] = useState<RouteId>(getInitialRoute());
+  const [logFilter, setLogFilter] = useState<EventCategory | "all">("all");
   const [state, setState] = useState<DeviceState>(loadState);
   const [draftConfig, setDraftConfig] = useState<DeviceConfig>(loadState().config);
   const [lastSavedAt, setLastSavedAt] = useState<string>("not saved this session");
 
-  const errors = useMemo(() => validateConfig(draftConfig), [draftConfig]);
+  const errors = useMemo(
+    () => validateConfig(draftConfig, state.ruleEngine.rules),
+    [draftConfig, state.ruleEngine.rules]
+  );
 
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(state));
@@ -113,14 +185,23 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  function appendLog(message: string) {
-    setState((current) => ({
-      ...current,
-      faults: {
-        ...current.faults,
-        logs: [`[${new Date().toLocaleTimeString()}] ${message}`, ...current.faults.logs].slice(0, 12)
+  function appendEvent(category: EventCategory, message: string, source: EventLogEntry["source"] = "system") {
+    setState((current) => {
+      if (!current.flags.eventLoggingEnabled) {
+        return {
+          ...current,
+          eventLog: {
+            ...current.eventLog,
+            status: "disabled"
+          }
+        };
       }
-    }));
+
+      return {
+        ...current,
+        eventLog: applyBoundedEventLog(current.eventLog, createEvent(category, message, source))
+      };
+    });
   }
 
   function handleConfigChange(key: keyof DeviceConfig, value: string | number | boolean) {
@@ -131,28 +212,33 @@ export default function App() {
   }
 
   function handleSaveConfig() {
-    const nextErrors = validateConfig(draftConfig);
+    const nextErrors = validateConfig(draftConfig, state.ruleEngine.rules);
     if (Object.keys(nextErrors).length > 0) {
-      appendLog("Configuration save blocked by validation errors");
+      appendEvent("configuration", "Configuration save blocked by validation errors", "local_web");
       return;
     }
 
     setState((current) => ({
       ...current,
       config: draftConfig,
-      flags: {
-        ...current.flags,
-        displayEnabled: draftConfig.selectedDisplayPage !== undefined ? current.flags.displayEnabled : current.flags.displayEnabled
+      eventLog: {
+        ...current.eventLog,
+        maxEntries: draftConfig.eventLogCapacityEntries,
+        retentionDays: draftConfig.eventLogRetentionDays
+      },
+      ruleEngine: {
+        ...current.ruleEngine,
+        lastConfigurationSource: "local_web"
       },
       manualModeReason: current.flags.manualModeActive ? "manual mode active by user" : "not active"
     }));
     setLastSavedAt(new Date().toLocaleString());
-    appendLog("Configuration saved to simulated local storage");
+    appendEvent("configuration", "Configuration saved to simulated local storage", "local_web");
   }
 
   function handleResetConfig() {
     setDraftConfig(state.config);
-    appendLog("Draft configuration reset to current device state");
+    appendEvent("configuration", "Draft configuration reset to current device state", "local_web");
   }
 
   function handleToggleOutput(key: keyof DeviceState["outputs"]) {
@@ -171,13 +257,35 @@ export default function App() {
         outputs: nextOutputs
       };
     });
-    appendLog(`Manual output toggle: ${key}`);
+    appendEvent("output", `Manual output toggle: ${key}`, "local_web");
   }
 
-  function handleSetFlag(key: "automationEnabled" | "manualModeActive", value: boolean) {
+  function handleSetFlag(
+    key:
+      | "automationEnabled"
+      | "manualModeActive"
+      | "ruleEngineEnabled"
+      | "irrigationAutomationEnabled"
+      | "ventilationAutomationEnabled"
+      | "windowAutomationEnabled"
+      | "eventLoggingEnabled",
+    value: boolean
+  ) {
     setState((current) => ({
       ...current,
       flags: { ...current.flags, [key]: value },
+      ruleEngine: key === "ruleEngineEnabled"
+        ? {
+            ...current.ruleEngine,
+            state: value ? "rule_engine_active" : "rule_engine_inhibited"
+          }
+        : current.ruleEngine,
+      eventLog: key === "eventLoggingEnabled"
+        ? {
+            ...current.eventLog,
+            status: value ? "healthy" : "disabled"
+          }
+        : current.eventLog,
       manualModeReason:
         key === "manualModeActive" && value
           ? "manual maintenance mode latched by operator"
@@ -185,7 +293,7 @@ export default function App() {
             ? "not active"
             : current.manualModeReason
     }));
-    appendLog(`${key} set to ${value ? "enabled" : "disabled"}`);
+    appendEvent("maintenance", `${key} set to ${value ? "enabled" : "disabled"}`, "local_web");
   }
 
   function handleWindowAction(action: "open" | "close" | "stop") {
@@ -197,7 +305,12 @@ export default function App() {
             ...current.outputs,
             windowOpenRelay: false,
             windowCloseRelay: false
-          }
+          },
+          ruleEngine: {
+            ...current.ruleEngine,
+            lastAutomationDecisionText: "Window motion stopped by local control"
+          },
+          lastWindowActionTime: new Date().toLocaleString()
         };
       }
 
@@ -216,10 +329,15 @@ export default function App() {
           ...current.outputs,
           windowOpenRelay: action === "open",
           windowCloseRelay: action === "close"
-        }
+        },
+        ruleEngine: {
+          ...current.ruleEngine,
+          lastAutomationDecisionText: `Window ${action} command issued`
+        },
+        lastWindowActionTime: new Date().toLocaleString()
       };
     });
-    appendLog(`Window action simulated: ${action}`);
+    appendEvent("window", `Window action simulated: ${action}`, "local_web");
   }
 
   function handleIrrigationAction(action: "start" | "stop" | "fault") {
@@ -233,6 +351,11 @@ export default function App() {
             ...current.faults,
             irrigationFaultActive: false,
             lastFailureReason: "none"
+          },
+          lastIrrigationEventTime: new Date().toLocaleString(),
+          ruleEngine: {
+            ...current.ruleEngine,
+            lastAutomationDecisionText: "Irrigation start permitted"
           }
         };
       }
@@ -240,7 +363,8 @@ export default function App() {
         return {
           ...current,
           outputs: { ...current.outputs, irrigationPump: false },
-          sensors: { ...current.sensors, flowRateLpm: 0 }
+          sensors: { ...current.sensors, flowRateLpm: 0 },
+          lastIrrigationEventTime: new Date().toLocaleString()
         };
       }
       return {
@@ -251,10 +375,15 @@ export default function App() {
           ...current.faults,
           irrigationFaultActive: true,
           lastFailureReason: "irrigation_no_flow"
+        },
+        lastIrrigationEventTime: new Date().toLocaleString(),
+        ruleEngine: {
+          ...current.ruleEngine,
+          lastAutomationDecisionText: "Irrigation stopped by no-flow policy"
         }
       };
     });
-    appendLog(`Irrigation action simulated: ${action}`);
+    appendEvent("irrigation", `Irrigation action simulated: ${action}`, "local_web");
   }
 
   function handleSimulateMode(mode: DeviceState["connectivity"]["networkMode"]) {
@@ -302,7 +431,7 @@ export default function App() {
         }
       };
     });
-    appendLog(`Network mode simulated: ${mode}`);
+    appendEvent("network", `Network mode simulated: ${mode}`, "system");
   }
 
   function handleAdminAction(action: "restart" | "factory-reset" | "ota-toggle") {
@@ -329,7 +458,7 @@ export default function App() {
           lastFailureReason: "none"
         }
       }));
-      appendLog("Simulated safe restart completed");
+      appendEvent("boot", "Simulated safe restart completed", "system");
       return;
     }
 
@@ -351,7 +480,7 @@ export default function App() {
         lastFailureReason: current.flags.otaInProgress ? "none" : "ota_in_progress"
       }
     }));
-    appendLog("OTA simulation toggled");
+    appendEvent("ota", "OTA simulation toggled", "system");
   }
 
   function handleInjectFault(fault: "sensor" | "irrigation" | "clear") {
@@ -362,10 +491,12 @@ export default function App() {
           ...current.faults,
           sensorFaultActive: false,
           irrigationFaultActive: false,
+          loggingFaultActive: false,
+          ruleEngineFaultActive: false,
           lastFailureReason: "none"
         }
       }));
-      appendLog("Simulated faults cleared");
+      appendEvent("sensor", "Simulated faults cleared", "system");
       return;
     }
 
@@ -383,7 +514,7 @@ export default function App() {
           exhaustFan: false
         }
       }));
-      appendLog("Simulated high temperature sensor fault");
+      appendEvent("sensor", "Simulated high temperature sensor fault", "system");
       return;
     }
 
@@ -399,7 +530,113 @@ export default function App() {
         irrigationPump: false
       }
     }));
-    appendLog("Simulated irrigation no-flow fault");
+    appendEvent("irrigation", "Simulated irrigation no-flow fault", "system");
+  }
+
+  function handleAddRule() {
+    const nextRule: RuleRow = {
+      id: `rule-${Date.now()}`,
+      enabled: true,
+      order: state.ruleEngine.rules.length + 1,
+      ruleClass: "ventilation",
+      description: "New rule",
+      field: "highAirTemperature",
+      operator: "above",
+      threshold: 25,
+      action: "turn_intake_fan_on",
+      cooldownSeconds: 60
+    };
+
+    setState((current) => ({
+      ...current,
+      ruleEngine: {
+        ...current.ruleEngine,
+        rules: [...current.ruleEngine.rules, nextRule]
+      }
+    }));
+    appendEvent("rule_engine", "Rule row added locally", "local_web");
+  }
+
+  function handleDeleteRule(id: string) {
+    setState((current) => {
+      const nextRules = current.ruleEngine.rules
+        .filter((rule) => rule.id !== id)
+        .map((rule, index) => ({ ...rule, order: index + 1 }));
+      return {
+        ...current,
+        ruleEngine: {
+          ...current.ruleEngine,
+          rules: nextRules
+        }
+      };
+    });
+    appendEvent("rule_engine", "Rule row deleted locally", "local_web");
+  }
+
+  function handleToggleRule(id: string) {
+    setState((current) => ({
+      ...current,
+      ruleEngine: {
+        ...current.ruleEngine,
+        rules: current.ruleEngine.rules.map((rule) =>
+          rule.id === id ? { ...rule, enabled: !rule.enabled } : rule
+        )
+      }
+    }));
+    appendEvent("rule_engine", "Rule row enable state changed", "local_web");
+  }
+
+  function handleMoveRule(id: string, direction: "up" | "down") {
+    setState((current) => {
+      const rules = [...current.ruleEngine.rules];
+      const index = rules.findIndex((rule) => rule.id === id);
+      const target = direction === "up" ? index - 1 : index + 1;
+      if (index < 0 || target < 0 || target >= rules.length) {
+        return current;
+      }
+      const [item] = rules.splice(index, 1);
+      rules.splice(target, 0, item);
+      return {
+        ...current,
+        ruleEngine: {
+          ...current.ruleEngine,
+          rules: rules.map((rule, order) => ({ ...rule, order: order + 1 }))
+        }
+      };
+    });
+    appendEvent("rule_engine", `Rule row moved ${direction}`, "local_web");
+  }
+
+  function handleRuleChange(id: string, patch: Partial<RuleRow>) {
+    setState((current) => ({
+      ...current,
+      ruleEngine: {
+        ...current.ruleEngine,
+        rules: current.ruleEngine.rules.map((rule) =>
+          rule.id === id ? { ...rule, ...patch } : rule
+        )
+      }
+    }));
+  }
+
+  function handleGenerateEvent(category: EventCategory = "maintenance") {
+    appendEvent(category, `Sample ${category} event added from prototype`, "local_web");
+  }
+
+  function handleStressLog() {
+    setState((current) => {
+      let nextLog = current.eventLog;
+      for (let i = 0; i < current.eventLog.maxEntries + 25; i += 1) {
+        nextLog = applyBoundedEventLog(
+          nextLog,
+          createEvent("logging", `Stress event ${i + 1}`, "system")
+        );
+      }
+      return {
+        ...current,
+        eventLog: nextLog
+      };
+    });
   }
 
   let page = <OverviewPage state={state} />;
@@ -414,6 +651,28 @@ export default function App() {
         onSetFlag={handleSetFlag}
         onWindowAction={handleWindowAction}
         onIrrigationAction={handleIrrigationAction}
+      />
+    );
+  } else if (route === "rules") {
+    page = (
+      <RulesPage
+        rules={state.ruleEngine.rules}
+        errors={errors}
+        onAddRule={handleAddRule}
+        onDeleteRule={handleDeleteRule}
+        onToggleRule={handleToggleRule}
+        onMoveRule={handleMoveRule}
+        onRuleChange={handleRuleChange}
+      />
+    );
+  } else if (route === "logs") {
+    page = (
+      <LogViewerPage
+        eventLog={state.eventLog}
+        filter={logFilter}
+        onFilterChange={setLogFilter}
+        onGenerateEvent={handleGenerateEvent}
+        onStressLog={handleStressLog}
       />
     );
   } else if (route === "configuration") {
@@ -464,7 +723,7 @@ export default function App() {
           <div className="eyebrow">ESPHome / Home Assistant Local Web Prototype</div>
           <h2>{state.config.deviceName}</h2>
           <p>
-            Mock desktop-browser prototype for local status, recovery, configuration, and maintenance pages.
+            Mock desktop-browser prototype for local status, recovery, configuration, rule editing, and bounded event logging.
           </p>
         </div>
         <div className="header-meta">

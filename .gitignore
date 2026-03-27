@@ -17,6 +17,7 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
+.pio-core/
 
 # OS / editor noise
 .DS_Store

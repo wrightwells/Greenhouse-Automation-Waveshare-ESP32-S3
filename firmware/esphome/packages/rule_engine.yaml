@@ -1,0 +1,352 @@
+globals:
+  - id: rule_engine_enabled
+    type: bool
+    restore_value: yes
+    initial_value: "true"
+  - id: irrigation_automation_enabled
+    type: bool
+    restore_value: yes
+    initial_value: "true"
+  - id: ventilation_automation_enabled
+    type: bool
+    restore_value: yes
+    initial_value: "true"
+  - id: window_automation_enabled
+    type: bool
+    restore_value: yes
+    initial_value: "true"
+  - id: rule_table_valid
+    type: bool
+    restore_value: yes
+    initial_value: "true"
+  - id: rule_engine_degraded
+    type: bool
+    restore_value: yes
+    initial_value: "false"
+  - id: last_config_source
+    type: std::string
+    restore_value: yes
+    initial_value: '"default_fallback"'
+  - id: last_automation_action
+    type: std::string
+    restore_value: yes
+    initial_value: '"none"'
+  - id: current_profile_name
+    type: std::string
+    restore_value: yes
+    initial_value: '"default"'
+
+switch:
+  - platform: template
+    id: rule_engine_enable
+    name: "${friendly_name} Rule Engine Enable"
+    restore_mode: RESTORE_DEFAULT_ON
+    lambda: |-
+      return id(rule_engine_enabled);
+    turn_on_action:
+      - lambda: |-
+          id(rule_engine_enabled) = true;
+          id(last_automation_action) = "rule_engine_enabled";
+      - script.execute: note_log_event_rollover
+    turn_off_action:
+      - lambda: |-
+          id(rule_engine_enabled) = false;
+          id(last_automation_action) = "rule_engine_disabled";
+      - script.execute: safe_all_outputs_off
+      - script.execute: note_log_event_rollover
+
+  - platform: template
+    id: irrigation_automation_enable
+    name: "${friendly_name} Irrigation Automation Enable"
+    restore_mode: RESTORE_DEFAULT_ON
+    lambda: |-
+      return id(irrigation_automation_enabled);
+    turn_on_action:
+      - lambda: |-
+          id(irrigation_automation_enabled) = true;
+          id(last_automation_action) = "irrigation_automation_enabled";
+      - script.execute: note_log_event_rollover
+    turn_off_action:
+      - lambda: |-
+          id(irrigation_automation_enabled) = false;
+          id(last_automation_action) = "irrigation_automation_disabled";
+      - switch.turn_off: relay_irrigation_pump
+      - script.execute: note_log_event_rollover
+
+  - platform: template
+    id: ventilation_automation_enable
+    name: "${friendly_name} Ventilation Automation Enable"
+    restore_mode: RESTORE_DEFAULT_ON
+    lambda: |-
+      return id(ventilation_automation_enabled);
+    turn_on_action:
+      - lambda: |-
+          id(ventilation_automation_enabled) = true;
+          id(last_automation_action) = "ventilation_automation_enabled";
+      - script.execute: note_log_event_rollover
+    turn_off_action:
+      - lambda: |-
+          id(ventilation_automation_enabled) = false;
+          id(last_automation_action) = "ventilation_automation_disabled";
+      - switch.turn_off: relay_intake_fan
+      - switch.turn_off: relay_exhaust_fan
+      - script.execute: note_log_event_rollover
+
+  - platform: template
+    id: window_automation_enable
+    name: "${friendly_name} Window Automation Enable"
+    restore_mode: RESTORE_DEFAULT_ON
+    lambda: |-
+      return id(window_automation_enabled);
+    turn_on_action:
+      - lambda: |-
+          id(window_automation_enabled) = true;
+          id(last_automation_action) = "window_automation_enabled";
+      - script.execute: note_log_event_rollover
+    turn_off_action:
+      - lambda: |-
+          id(window_automation_enabled) = false;
+          id(last_automation_action) = "window_automation_disabled";
+      - script.execute: stop_window_motion
+      - script.execute: note_log_event_rollover
+
+number:
+  - platform: template
+    id: flow_validation_minimum_threshold
+    name: "${friendly_name} Flow Validation Minimum Threshold"
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 10
+    step: 0.1
+    initial_value: 0.2
+    unit_of_measurement: "L/min"
+    mode: box
+
+  - platform: template
+    id: no_flow_timeout_seconds
+    name: "${friendly_name} No Flow Timeout"
+    optimistic: true
+    restore_value: true
+    min_value: 1
+    max_value: 300
+    step: 1
+    initial_value: 30
+    unit_of_measurement: "s"
+    mode: box
+
+  - platform: template
+    id: min_fan_run_time_seconds
+    name: "${friendly_name} Minimum Fan Run Time"
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 3600
+    step: 10
+    initial_value: 120
+    unit_of_measurement: "s"
+    mode: box
+
+  - platform: template
+    id: min_fan_off_time_seconds
+    name: "${friendly_name} Minimum Fan Off Time"
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 3600
+    step: 10
+    initial_value: 120
+    unit_of_measurement: "s"
+    mode: box
+
+  - platform: template
+    id: min_pump_run_time_seconds
+    name: "${friendly_name} Minimum Pump Run Time"
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 1800
+    step: 10
+    initial_value: 30
+    unit_of_measurement: "s"
+    mode: box
+
+  - platform: template
+    id: max_pump_run_time_seconds
+    name: "${friendly_name} Maximum Pump Run Time"
+    optimistic: true
+    restore_value: true
+    min_value: 10
+    max_value: 3600
+    step: 10
+    initial_value: 180
+    unit_of_measurement: "s"
+    mode: box
+
+  - platform: template
+    id: window_minimum_movement_interval_seconds
+    name: "${friendly_name} Window Minimum Movement Interval"
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 3600
+    step: 10
+    initial_value: 60
+    unit_of_measurement: "s"
+    mode: box
+
+  - platform: template
+    id: high_ground_temperature_threshold
+    name: "${friendly_name} High Ground Temperature Threshold"
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 50
+    step: 0.5
+    initial_value: 27
+    unit_of_measurement: "°C"
+    mode: box
+
+  - platform: template
+    id: low_ground_temperature_threshold
+    name: "${friendly_name} Low Ground Temperature Threshold"
+    optimistic: true
+    restore_value: true
+    min_value: -10
+    max_value: 40
+    step: 0.5
+    initial_value: 18
+    unit_of_measurement: "°C"
+    mode: box
+
+  - platform: template
+    id: high_ceiling_temperature_threshold
+    name: "${friendly_name} High Ceiling Temperature Threshold"
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 60
+    step: 0.5
+    initial_value: 31
+    unit_of_measurement: "°C"
+    mode: box
+
+  - platform: template
+    id: low_ceiling_temperature_threshold
+    name: "${friendly_name} Low Ceiling Temperature Threshold"
+    optimistic: true
+    restore_value: true
+    min_value: -10
+    max_value: 50
+    step: 0.5
+    initial_value: 20
+    unit_of_measurement: "°C"
+    mode: box
+
+select:
+  - platform: template
+    id: active_control_profile
+    name: "${friendly_name} Active Control Profile"
+    optimistic: true
+    restore_value: true
+    options:
+      - default
+      - summer_day
+      - summer_night
+      - winter
+      - maintenance
+    initial_option: default
+    set_action:
+      - lambda: |-
+          id(current_profile_name) = x;
+          id(last_config_source) = "local_or_restored_profile";
+
+  - platform: template
+    id: configuration_precedence_mode
+    name: "${friendly_name} Configuration Precedence Mode"
+    optimistic: true
+    restore_value: true
+    options:
+      - local_web_wins
+      - home_assistant_wins
+      - last_writer_wins
+    initial_option: local_web_wins
+
+  - platform: template
+    id: irrigation_fault_policy
+    name: "${friendly_name} Irrigation Fault Policy"
+    optimistic: true
+    restore_value: true
+    options:
+      - stop_and_inhibit
+      - stop_and_retry_later
+      - stop_and_flag_only
+    initial_option: stop_and_inhibit
+
+  - platform: template
+    id: rule_conflict_policy
+    name: "${friendly_name} Rule Conflict Policy"
+    optimistic: true
+    restore_value: true
+    options:
+      - safe_off_wins
+      - highest_priority_wins
+      - inhibit_wins
+    initial_option: safe_off_wins
+
+text_sensor:
+  - platform: template
+    id: current_rule_engine_state
+    name: "${friendly_name} Current Rule Engine State"
+    entity_category: diagnostic
+    lambda: |-
+      if (!id(rule_engine_enabled)) {
+        return {"rule_engine_inhibited"};
+      }
+      if (!id(rule_table_valid) || id(rule_engine_degraded)) {
+        return {"rule_engine_degraded"};
+      }
+      return {"rule_engine_active"};
+    update_interval: 10s
+
+  - platform: template
+    id: current_automation_source
+    name: "${friendly_name} Current Automation Source"
+    entity_category: diagnostic
+    lambda: |-
+      if (id(manual_mode_active)) {
+        return {"manual_mode"};
+      }
+      if (!id(rule_engine_enabled)) {
+        return {"rule_engine_disabled"};
+      }
+      if (!id(rule_table_valid)) {
+        return {"fallback_defaults"};
+      }
+      return {"local_rules"};
+    update_interval: 10s
+
+  - platform: template
+    id: last_configuration_source_text
+    name: "${friendly_name} Last Configuration Source"
+    entity_category: diagnostic
+    lambda: |-
+      return {id(last_config_source)};
+    update_interval: 15s
+
+  - platform: template
+    id: last_automation_action_text
+    name: "${friendly_name} Last Automation Action"
+    entity_category: diagnostic
+    lambda: |-
+      return {id(last_automation_action)};
+    update_interval: 15s
+
+binary_sensor:
+  - platform: template
+    id: rule_engine_fault_active
+    name: "${friendly_name} Rule Engine Fault Active"
+    entity_category: diagnostic
+    lambda: |-
+      return !id(rule_table_valid) || id(rule_engine_degraded);
+    device_class: problem

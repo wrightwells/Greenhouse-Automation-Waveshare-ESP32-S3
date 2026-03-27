@@ -40,6 +40,8 @@ Validation should combine:
 - ventilation thresholds use hysteresis to prevent chatter
 - irrigation logic honours minimum run, maximum run, cooldown, and settle delay
 - flow validation can fault irrigation safely when configured
+- rule ordering and conflict resolution remain deterministic
+- local rule edits are validated before activation
 
 ### Recovery and Maintenance
 
@@ -47,6 +49,7 @@ Validation should combine:
 - direct maintenance controls reflect state in local UI and Home Assistant
 - factory reset returns the device to safe recovery defaults
 - faults remain visible locally and through Home Assistant diagnostics
+- logging faults do not stop safe control
 
 ### OTA
 
@@ -54,6 +57,14 @@ Validation should combine:
 - outputs move to safe OFF before update
 - configuration survives successful update
 - failed or interrupted OTA leaves the device recoverable and safe
+- rule table and logging subsystem recover safely after OTA
+
+### Rule Engine and Logging
+
+- local rule table is the final source of per-cycle automation decisions
+- Home Assistant only writes supervisory values or profiles
+- 7-day event log retains significant events with timestamps and categories
+- local log viewer shows newest entries first and supports category filtering where practical
 
 ## Initial Test Matrix
 
@@ -68,9 +79,25 @@ Validation should combine:
 | TC-F-015 | Irrigation | Verify soil-moisture-driven irrigation with safeguards |
 | TC-F-018 | Irrigation fault | Verify no-flow detection safe behaviour |
 | TC-F-020 | Window control | Verify full-open actuator behaviour without conflicts |
+| TC-F-029 | Rule editor | Verify local rule row edit and save |
+| TC-F-030 | Rule validation | Verify invalid rule row is rejected |
+| TC-F-031 | Rule ordering | Verify reordered rules apply deterministically |
+| TC-F-032 | Rule conflict | Verify conflicting rules are arbitrated safely and logged |
+| TC-F-034 | HA config sync | Verify Home Assistant can write threshold values to the device |
+| TC-F-038 | Event log retention | Verify 7-day retention and pruning |
+| TC-F-039 | Log page | Verify recent log page view is newest first with timestamps |
+| TC-F-043 | Logging fault | Verify logging fault does not stop control |
+| TC-F-045 | Rule engine mode | Verify rule-engine disable is distinct from manual mode |
 | TC-OTA-001 | OTA | Verify successful OTA safe path |
+| TC-OTA-011 | OTA persistence | Verify rule table persists across OTA |
+| TC-OTA-012 | OTA logging | Verify logging subsystem recovers after OTA |
+| TC-OTA-013 | OTA event logging | Verify OTA start/success events are logged |
 | TC-OTA-003 | OTA fault | Verify interrupted OTA safe recovery |
 | TC-N-003 | Sensor fault | Verify missing critical sensor triggers safe degradation |
+| TC-N-011 | HA invalid value | Verify invalid HA threshold writes are rejected or clamped |
+| TC-N-012 | Corrupt rule table | Verify corrupt rule table falls back safely at boot |
+| TC-N-013 | Log saturation | Verify old entries are pruned without affecting control |
+| TC-N-014 | Config precedence | Verify conflicting HA/local writes follow precedence policy |
 
 ## Bench Notes
 
@@ -102,6 +129,14 @@ The repository now includes a first implementation pass for:
 - OTA safe-state hook handling
 - connectivity and fault diagnostics
 
+Updated implementation preparation priorities from the revised specification:
+
+- design and implement a deterministic local rule-table engine
+- design bounded 7-day event logging with minimal write amplification
+- expose rule-engine state, automation source, configuration source, and logging health to Home Assistant
+- add a local rule editor page and a local event log viewer page
+- deliver a Home Assistant handoff including helper patterns and YAML examples
+
 Immediate next validation priorities:
 
 - confirm the exact Waveshare Ethernet and relay pin mapping
@@ -109,3 +144,6 @@ Immediate next validation priorities:
 - bench-test relay polarity and interlocking before connecting real loads
 - verify flow sensor scaling and soil moisture calibration against actual hardware
 - verify whether Ethernet and AP recovery behavior fully match the target board and ESPHome version
+- define and test rule conflict precedence policy
+- define and test log retention and pruning behavior
+- validate Home Assistant supervisory config sync with HA offline afterwards

@@ -18,6 +18,30 @@ export const configFields: ConfigField[] = [
     required: true
   },
   {
+    key: "activeControlProfile",
+    label: "Active control profile",
+    type: "select",
+    section: "ruleEngine",
+    description: "Profile name Home Assistant or local web can select.",
+    options: ["default", "summer_day", "summer_night", "winter", "maintenance"]
+  },
+  {
+    key: "configurationPrecedenceMode",
+    label: "Configuration precedence mode",
+    type: "select",
+    section: "ruleEngine",
+    description: "Controls conflict resolution when HA and local web both change the same setting.",
+    options: ["local_web_wins", "home_assistant_wins", "last_writer_wins"]
+  },
+  {
+    key: "ruleConflictPolicy",
+    label: "Rule conflict policy",
+    type: "select",
+    section: "ruleEngine",
+    description: "Safe arbitration policy when rules conflict.",
+    options: ["safe_off_wins", "highest_priority_wins", "inhibit_wins"]
+  },
+  {
     key: "actuatorMode",
     label: "Actuator mode",
     type: "select",
@@ -56,6 +80,16 @@ export const configFields: ConfigField[] = [
     step: 1
   },
   {
+    key: "windowMinimumMovementIntervalSeconds",
+    label: "Window minimum movement interval",
+    type: "number",
+    section: "window",
+    description: "Prevents frequent direction changes and actuator chatter.",
+    min: 0,
+    max: 3600,
+    step: 10
+  },
+  {
     key: "ventilationOpenThreshold",
     label: "Ventilation open threshold",
     type: "number",
@@ -76,6 +110,26 @@ export const configFields: ConfigField[] = [
     step: 0.5
   },
   {
+    key: "minFanRunTimeSeconds",
+    label: "Minimum fan run time",
+    type: "number",
+    section: "ventilation",
+    description: "Minimum run time before ventilation is allowed to turn off.",
+    min: 0,
+    max: 3600,
+    step: 10
+  },
+  {
+    key: "minFanOffTimeSeconds",
+    label: "Minimum fan off time",
+    type: "number",
+    section: "ventilation",
+    description: "Minimum off interval before ventilation can restart.",
+    min: 0,
+    max: 3600,
+    step: 10
+  },
+  {
     key: "soilMoistureMinThreshold",
     label: "Soil moisture minimum threshold",
     type: "number",
@@ -90,7 +144,7 @@ export const configFields: ConfigField[] = [
     label: "Irrigation minimum run time",
     type: "number",
     section: "irrigation",
-    description: "Minimum runtime before no-flow checks should matter.",
+    description: "Minimum runtime before a stop is allowed.",
     min: 5,
     max: 600,
     step: 5
@@ -103,6 +157,26 @@ export const configFields: ConfigField[] = [
     description: "Hard safety stop for irrigation cycles.",
     min: 10,
     max: 1800,
+    step: 10
+  },
+  {
+    key: "minPumpRunTimeSeconds",
+    label: "Minimum pump run time",
+    type: "number",
+    section: "irrigation",
+    description: "Lower bound for pump runtime under rule control.",
+    min: 0,
+    max: 1800,
+    step: 10
+  },
+  {
+    key: "maxPumpRunTimeSeconds",
+    label: "Maximum pump run time",
+    type: "number",
+    section: "irrigation",
+    description: "Upper bound for pump runtime under rule control.",
+    min: 10,
+    max: 3600,
     step: 10
   },
   {
@@ -133,6 +207,26 @@ export const configFields: ConfigField[] = [
     description: "Use flow feedback to detect no-flow conditions."
   },
   {
+    key: "flowValidationMinimumThreshold",
+    label: "Flow validation minimum threshold",
+    type: "number",
+    section: "irrigation",
+    description: "Minimum acceptable flow during irrigation.",
+    min: 0,
+    max: 10,
+    step: 0.1
+  },
+  {
+    key: "noFlowTimeoutSeconds",
+    label: "No-flow timeout",
+    type: "number",
+    section: "irrigation",
+    description: "Stop/inhibit irrigation if flow stays below the minimum for this long.",
+    min: 1,
+    max: 300,
+    step: 1
+  },
+  {
     key: "flowPulsesPerLitre",
     label: "Flow pulses per litre",
     type: "number",
@@ -161,6 +255,62 @@ export const configFields: ConfigField[] = [
     min: 0,
     max: 3.3,
     step: 0.01
+  },
+  {
+    key: "irrigationFaultPolicy",
+    label: "Irrigation fault policy",
+    type: "select",
+    section: "irrigation",
+    description: "Safe policy when flow validation fails.",
+    options: ["stop_and_inhibit", "stop_and_retry_later", "stop_and_flag_only"]
+  },
+  {
+    key: "eventLogCapacityEntries",
+    label: "Event log capacity",
+    type: "number",
+    section: "logging",
+    description: "Hard bounded maximum number of in-memory log records kept by the prototype.",
+    min: 20,
+    max: 500,
+    step: 10
+  },
+  {
+    key: "eventLogRetentionDays",
+    label: "Event log retention days",
+    type: "number",
+    section: "logging",
+    description: "Prototype retention target before age-based pruning.",
+    min: 1,
+    max: 7,
+    step: 1
+  },
+  {
+    key: "minimumStateChangeLoggingIntervalSeconds",
+    label: "Minimum state-change logging interval",
+    type: "number",
+    section: "logging",
+    description: "Rate limit for repeated log entries in the final implementation.",
+    min: 0,
+    max: 600,
+    step: 1
+  },
+  {
+    key: "selectedDisplayPage",
+    label: "Display page",
+    type: "select",
+    section: "display",
+    description: "Which logical status page the small local display shows first.",
+    options: ["environmental", "irrigation", "diagnostics"]
+  },
+  {
+    key: "displayPageIntervalSeconds",
+    label: "Display page interval",
+    type: "number",
+    section: "display",
+    description: "Rotation interval for display pages.",
+    min: 2,
+    max: 60,
+    step: 1
   },
   {
     key: "wifiSsid",
@@ -236,24 +386,6 @@ export const configFields: ConfigField[] = [
     type: "text",
     section: "mqtt",
     description: "Supplementary telemetry topic root."
-  },
-  {
-    key: "selectedDisplayPage",
-    label: "Display page",
-    type: "select",
-    section: "display",
-    description: "Which logical status page the small local display shows first.",
-    options: ["environmental", "irrigation", "diagnostics"]
-  },
-  {
-    key: "displayPageIntervalSeconds",
-    label: "Display page interval",
-    type: "number",
-    section: "display",
-    description: "Rotation interval for display pages.",
-    min: 2,
-    max: 60,
-    step: 1
   },
   {
     key: "otaEnabled",

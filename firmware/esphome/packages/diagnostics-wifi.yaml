@@ -1,0 +1,61 @@
+binary_sensor:
+  - platform: template
+    id: ethernet_connected
+    name: "${friendly_name} Ethernet Connected"
+    entity_category: diagnostic
+    lambda: |-
+      return false;
+    device_class: connectivity
+
+  - platform: template
+    id: wifi_connected
+    name: "${friendly_name} Wi-Fi Connected"
+    entity_category: diagnostic
+    lambda: |-
+      return id(wifi_ip_address).state.length() > 0;
+    device_class: connectivity
+
+  - platform: template
+    id: ap_mode_active
+    name: "${friendly_name} AP Recovery Mode Active"
+    entity_category: diagnostic
+    lambda: |-
+      return id(wifi_ip_address).state.length() == 0;
+    device_class: connectivity
+
+sensor:
+  - platform: wifi_signal
+    id: wifi_rssi
+    name: "${friendly_name} Wi-Fi RSSI"
+    update_interval: 60s
+    entity_category: diagnostic
+
+text_sensor:
+  - platform: template
+    id: ethernet_ip_address
+    name: "${friendly_name} Ethernet IP Address"
+    entity_category: diagnostic
+    lambda: |-
+      return {"not_configured"};
+    update_interval: 60s
+
+  - platform: wifi_info
+    ip_address:
+      id: wifi_ip_address
+      name: "${friendly_name} Wi-Fi IP Address"
+      entity_category: diagnostic
+    ssid:
+      id: wifi_ssid_connected
+      name: "${friendly_name} Wi-Fi SSID"
+      entity_category: diagnostic
+
+  - platform: template
+    id: current_network_mode
+    name: "${friendly_name} Current Network Mode"
+    entity_category: diagnostic
+    lambda: |-
+      if (id(wifi_ip_address).state.length() > 0) {
+        return {"wifi_client"};
+      }
+      return {"ap_recovery"};
+    update_interval: 10s

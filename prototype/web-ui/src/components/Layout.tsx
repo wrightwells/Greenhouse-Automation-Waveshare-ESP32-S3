@@ -5,6 +5,8 @@ const navItems: Array<{ id: RouteId; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "status", label: "Live Status" },
   { id: "controls", label: "Controls" },
+  { id: "rules", label: "Rule Editor" },
+  { id: "logs", label: "Event Log" },
   { id: "configuration", label: "Configuration" },
   { id: "network", label: "Network" },
   { id: "recovery", label: "Recovery Setup" },

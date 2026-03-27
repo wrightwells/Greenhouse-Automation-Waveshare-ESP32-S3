@@ -5,7 +5,17 @@ import { StatusBadge } from "../components/StatusBadge";
 interface ControlsPageProps {
   state: DeviceState;
   onToggleOutput: (key: keyof DeviceState["outputs"]) => void;
-  onSetFlag: (key: "automationEnabled" | "manualModeActive", value: boolean) => void;
+  onSetFlag: (
+    key:
+      | "automationEnabled"
+      | "manualModeActive"
+      | "ruleEngineEnabled"
+      | "irrigationAutomationEnabled"
+      | "ventilationAutomationEnabled"
+      | "windowAutomationEnabled"
+      | "eventLoggingEnabled",
+    value: boolean
+  ) => void;
   onWindowAction: (action: "open" | "close" | "stop") => void;
   onIrrigationAction: (action: "start" | "stop" | "fault") => void;
 }
@@ -19,7 +29,7 @@ export function ControlsPage({
 }: ControlsPageProps) {
   return (
     <div className="page-grid">
-      <SectionCard title="Control Mode" subtitle="Manual maintenance mode is explicit and latched until cancelled.">
+      <SectionCard title="Control Mode" subtitle="Manual mode, rule-engine enable, and per-class automation enables are distinct.">
         <div className="toggle-row">
           <button
             className={state.flags.automationEnabled ? "button primary" : "button"}
@@ -33,16 +43,38 @@ export function ControlsPage({
           >
             {state.flags.manualModeActive ? "Cancel manual mode" : "Enter manual mode"}
           </button>
+          <button
+            className={state.flags.ruleEngineEnabled ? "button primary" : "button"}
+            onClick={() => onSetFlag("ruleEngineEnabled", !state.flags.ruleEngineEnabled)}
+          >
+            {state.flags.ruleEngineEnabled ? "Disable rule engine" : "Enable rule engine"}
+          </button>
         </div>
         <div className="badge-row">
-          <StatusBadge
-            label={state.flags.automationEnabled ? "automation enabled" : "automation disabled"}
-            tone={state.flags.automationEnabled ? "ok" : "warn"}
-          />
-          <StatusBadge
-            label={state.flags.manualModeActive ? "manual mode active" : "manual mode inactive"}
-            tone={state.flags.manualModeActive ? "warn" : "neutral"}
-          />
+          <StatusBadge label={state.flags.manualModeActive ? "manual mode active" : "automatic mode"} tone={state.flags.manualModeActive ? "warn" : "ok"} />
+          <StatusBadge label={state.flags.ruleEngineEnabled ? "rule engine enabled" : "rule engine inhibited"} tone={state.flags.ruleEngineEnabled ? "ok" : "warn"} />
+          <StatusBadge label={state.ruleEngine.state} tone={state.ruleEngine.state === "rule_engine_active" ? "ok" : "warn"} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Automation Class Enables" subtitle="Supervisory class controls without entering full manual mode.">
+        <div className="control-grid">
+          {(
+            [
+              ["irrigationAutomationEnabled", "Irrigation automation"],
+              ["ventilationAutomationEnabled", "Ventilation automation"],
+              ["windowAutomationEnabled", "Window automation"],
+              ["eventLoggingEnabled", "Event logging"]
+            ] as const
+          ).map(([key, label]) => (
+            <div className="control-card" key={key}>
+              <strong>{label}</strong>
+              <StatusBadge label={state.flags[key] ? "enabled" : "disabled"} tone={state.flags[key] ? "ok" : "warn"} />
+              <button className="button" onClick={() => onSetFlag(key, !state.flags[key])}>
+                Toggle
+              </button>
+            </div>
+          ))}
         </div>
       </SectionCard>
 

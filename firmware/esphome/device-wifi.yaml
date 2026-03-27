@@ -12,5 +12,5 @@ substitutions:
 
 packages:
   common: !include device-common.yaml
-  network_profile: !include packages/network-ethernet.yaml
-  diagnostics_profile: !include packages/diagnostics-ethernet.yaml
+  network_profile: !include packages/network-wifi.yaml
+  diagnostics_profile: !include packages/diagnostics-wifi.yaml

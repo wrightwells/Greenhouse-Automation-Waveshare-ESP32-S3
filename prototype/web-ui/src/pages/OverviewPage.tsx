@@ -34,6 +34,14 @@ export function OverviewPage({ state }: OverviewPageProps) {
             label={state.faults.lastFailureReason}
             tone={systemTone}
           />
+          <StatusBadge
+            label={state.ruleEngine.state}
+            tone={state.ruleEngine.state === "rule_engine_active" ? "ok" : "warn"}
+          />
+          <StatusBadge
+            label={`log ${state.eventLog.status}`}
+            tone={state.eventLog.status === "healthy" ? "ok" : "warn"}
+          />
         </div>
 
         <MetricGrid
@@ -69,6 +77,16 @@ export function OverviewPage({ state }: OverviewPageProps) {
               hint: state.connectivity.ethernetConnected
                 ? state.connectivity.ethernetIp
                 : state.connectivity.wifiIp || "AP fallback"
+            },
+            {
+              label: "Automation source",
+              value: state.ruleEngine.automationSource,
+              hint: state.ruleEngine.lastAutomationDecisionText
+            },
+            {
+              label: "Event log",
+              value: `${state.eventLog.entries.length}/${state.eventLog.maxEntries}`,
+              hint: `rollovers ${state.eventLog.rolloverCount}`
             }
           ]}
         />

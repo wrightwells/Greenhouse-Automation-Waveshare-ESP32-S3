@@ -52,35 +52,60 @@ switch:
   - platform: gpio
     id: relay_window_open
     name: "${friendly_name} Window Open Relay"
-    pin: GPIO1
+    pin:
+      pca9554: relay_expander
+      number: 0
+      mode:
+        output: true
+      inverted: false
     restore_mode: ALWAYS_OFF
     icon: mdi:window-open-variant
 
   - platform: gpio
     id: relay_window_close
     name: "${friendly_name} Window Close Relay"
-    pin: GPIO2
+    pin:
+      pca9554: relay_expander
+      number: 1
+      mode:
+        output: true
+      inverted: false
     restore_mode: ALWAYS_OFF
     icon: mdi:window-closed-variant
 
   - platform: gpio
     id: relay_intake_fan
     name: "${friendly_name} Intake Fan Relay"
-    pin: GPIO3
+    pin:
+      pca9554: relay_expander
+      number: 2
+      mode:
+        output: true
+      inverted: false
     restore_mode: ALWAYS_OFF
     icon: mdi:fan
 
   - platform: gpio
     id: relay_exhaust_fan
     name: "${friendly_name} Exhaust Fan Relay"
-    pin: GPIO4
+    pin:
+      pca9554: relay_expander
+      number: 3
+      mode:
+        output: true
+      inverted: false
     restore_mode: ALWAYS_OFF
     icon: mdi:fan
 
   - platform: gpio
     id: relay_irrigation_pump
     name: "${friendly_name} Irrigation Pump Relay"
-    pin: GPIO5
+    pin:
+      pca9554: relay_expander
+      number: 4
+      mode:
+        output: true
+      inverted: false
     restore_mode: ALWAYS_OFF
     icon: mdi:water-pump
     on_turn_on:
@@ -88,6 +113,9 @@ switch:
           id(irrigation_fault_active) = false;
           id(last_failure_reason) = "none";
           id(irrigation_run_seconds) = 0;
+          id(last_automation_action) = "irrigation_pump_on";
+          id(last_irrigation_event_time) = "recent_event_pending_time_sync";
+      - script.execute: note_log_event_rollover
     on_turn_off:
       - lambda: |-
           if (id(irrigation_run_seconds) >= int(id(irrigation_min_run_seconds).state)) {
@@ -95,6 +123,9 @@ switch:
             id(irrigation_settle_remaining_seconds) = int(id(soil_moisture_settle_delay_seconds).state);
           }
           id(irrigation_run_seconds) = 0;
+          id(last_automation_action) = "irrigation_pump_off";
+          id(last_irrigation_event_time) = "recent_event_pending_time_sync";
+      - script.execute: note_log_event_rollover
 
   - platform: template
     id: automation_enable
@@ -106,11 +137,14 @@ switch:
       - lambda: |-
           id(automation_enabled) = true;
           id(last_failure_reason) = "none";
+          id(last_automation_action) = "automation_enabled";
     turn_off_action:
       - lambda: |-
           id(automation_enabled) = false;
           id(last_failure_reason) = "automation_disabled";
+          id(last_automation_action) = "automation_disabled";
       - script.execute: safe_all_outputs_off
+      - script.execute: note_log_event_rollover
 
   - platform: template
     id: manual_mode_switch
@@ -122,13 +156,17 @@ switch:
       - lambda: |-
           id(manual_mode_active) = true;
           id(last_failure_reason) = "manual_mode";
+          id(last_automation_action) = "manual_mode_enabled";
       - script.execute: safe_all_outputs_off
+      - script.execute: note_log_event_rollover
     turn_off_action:
       - lambda: |-
           id(manual_mode_active) = false;
           if (id(last_failure_reason) == "manual_mode") {
             id(last_failure_reason) = "none";
           }
+          id(last_automation_action) = "manual_mode_disabled";
+      - script.execute: note_log_event_rollover
 
   - platform: template
     id: display_enable
@@ -397,8 +435,11 @@ script:
           }
           id(window_motion_direction) = 0;
           id(last_motion_update_ms) = now;
+          id(last_automation_action) = "window_motion_stopped";
+          id(last_window_action_time) = "recent_event_pending_time_sync";
       - switch.turn_off: relay_window_open
       - switch.turn_off: relay_window_close
+      - script.execute: note_log_event_rollover
 
   - id: start_window_open_motion
     mode: restart
@@ -413,8 +454,11 @@ script:
             - lambda: |-
                 id(window_motion_direction) = 1;
                 id(last_motion_update_ms) = millis();
+                id(last_automation_action) = "window_open_requested";
+                id(last_window_action_time) = "recent_event_pending_time_sync";
             - switch.turn_off: relay_window_close
             - switch.turn_on: relay_window_open
+            - script.execute: note_log_event_rollover
 
   - id: start_window_close_motion
     mode: restart
@@ -429,8 +473,11 @@ script:
             - lambda: |-
                 id(window_motion_direction) = -1;
                 id(last_motion_update_ms) = millis();
+                id(last_automation_action) = "window_close_requested";
+                id(last_window_action_time) = "recent_event_pending_time_sync";
             - switch.turn_off: relay_window_open
             - switch.turn_on: relay_window_close
+            - script.execute: note_log_event_rollover
 
   - id: evaluate_window_target
     mode: restart
@@ -438,7 +485,12 @@ script:
       - if:
           condition:
             lambda: |-
-              return id(ota_in_progress) || !id(automation_enabled);
+              return id(ota_in_progress) ||
+                !id(automation_enabled) ||
+                !id(rule_engine_enabled) ||
+                !id(window_automation_enabled) ||
+                !id(rule_table_valid) ||
+                id(rule_engine_degraded);
           then:
             - script.execute: stop_window_motion
           else:
@@ -515,61 +567,81 @@ interval:
       - if:
           condition:
             lambda: |-
-              return id(automation_enabled) && !id(manual_mode_active) && !id(ota_in_progress);
+              return id(automation_enabled) &&
+                !id(manual_mode_active) &&
+                !id(ota_in_progress) &&
+                id(rule_engine_enabled) &&
+                id(rule_table_valid) &&
+                !id(rule_engine_degraded);
           then:
             - if:
                 condition:
                   lambda: |-
-                    return !id(high_air_temperature).has_state();
+                    return id(ventilation_automation_enabled) &&
+                      !id(high_air_temperature).has_state();
                 then:
                   - switch.turn_off: relay_intake_fan
                   - switch.turn_off: relay_exhaust_fan
                   - lambda: |-
                       id(window_motion_target) = 0.0f;
                       id(last_failure_reason) = "high_temp_sensor_unavailable";
+                      id(last_automation_action) = "ventilation_sensor_fault_fallback";
                   - script.execute: stop_window_motion
+                  - script.execute: note_log_event_rollover
 
             - if:
                 condition:
                   lambda: |-
-                    return id(high_air_temperature).has_state() &&
+                    return id(ventilation_automation_enabled) &&
+                      id(high_air_temperature).has_state() &&
                       id(high_air_temperature).state >= id(ventilation_open_threshold).state;
                 then:
                   - switch.turn_on: relay_intake_fan
                   - switch.turn_on: relay_exhaust_fan
                   - lambda: |-
+                      id(last_automation_action) = "ventilation_rule_open";
+                      id(last_ventilation_event_time) = "recent_event_pending_time_sync";
                       if (id(window_motion_target) < 100.0f) {
                         id(window_motion_target) = 100.0f;
                       }
                   - script.execute: evaluate_window_target
+                  - script.execute: note_log_event_rollover
                 else:
                   - if:
                       condition:
                         lambda: |-
-                          return id(high_air_temperature).has_state() &&
+                          return id(ventilation_automation_enabled) &&
+                            id(high_air_temperature).has_state() &&
                             id(high_air_temperature).state <= id(ventilation_close_threshold).state;
                       then:
                         - switch.turn_off: relay_intake_fan
                         - switch.turn_off: relay_exhaust_fan
                         - lambda: |-
+                            id(last_automation_action) = "ventilation_rule_close";
+                            id(last_ventilation_event_time) = "recent_event_pending_time_sync";
                             if (id(window_motion_target) > 0.0f) {
                               id(window_motion_target) = 0.0f;
                             }
                         - script.execute: evaluate_window_target
+                        - script.execute: note_log_event_rollover
 
             - if:
                 condition:
                   lambda: |-
-                    return !id(soil_moisture_percent).has_state();
+                    return id(irrigation_automation_enabled) &&
+                      !id(soil_moisture_percent).has_state();
                 then:
                   - lambda: |-
                       id(last_failure_reason) = "soil_moisture_sensor_unavailable";
+                      id(last_automation_action) = "irrigation_sensor_fault_fallback";
                   - switch.turn_off: relay_irrigation_pump
+                  - script.execute: note_log_event_rollover
 
             - if:
                 condition:
                   lambda: |-
-                    return id(soil_moisture_percent).has_state() &&
+                    return id(irrigation_automation_enabled) &&
+                      id(soil_moisture_percent).has_state() &&
                       id(soil_moisture_percent).state < id(soil_moisture_min_threshold).state &&
                       id(irrigation_cooldown_remaining_seconds) == 0 &&
                       id(irrigation_settle_remaining_seconds) == 0 &&
@@ -584,13 +656,19 @@ interval:
             - if:
                 condition:
                   lambda: |-
-                    return id(flow_rate_lpm).has_state() && id(flow_rate_lpm).state <= 0.01f &&
-                      id(irrigation_run_seconds) >= int(id(irrigation_min_run_seconds).state);
+                    return id(rule_engine_enabled) &&
+                      id(irrigation_automation_enabled) &&
+                      id(flow_rate_lpm).has_state() &&
+                      id(flow_rate_lpm).state <= id(flow_validation_minimum_threshold).state &&
+                      id(irrigation_run_seconds) >= int(id(no_flow_timeout_seconds).state);
                 then:
                   - lambda: |-
                       id(irrigation_fault_active) = true;
                       id(last_failure_reason) = "irrigation_no_flow";
+                      id(last_automation_action) = "irrigation_fault_no_flow";
+                      id(last_irrigation_event_time) = "recent_event_pending_time_sync";
                   - switch.turn_off: relay_irrigation_pump
+                  - script.execute: note_log_event_rollover
 
             - if:
                 condition:
@@ -598,11 +676,18 @@ interval:
                     return id(irrigation_run_seconds) >= int(id(irrigation_max_run_seconds).state);
                 then:
                   - switch.turn_off: relay_irrigation_pump
+                  - lambda: |-
+                      id(last_automation_action) = "irrigation_max_runtime_stop";
+                      id(last_irrigation_event_time) = "recent_event_pending_time_sync";
+                  - script.execute: note_log_event_rollover
 
       - if:
           condition:
             lambda: |-
-              return !id(automation_enabled) || id(manual_mode_active) || id(ota_in_progress);
+              return !id(automation_enabled) ||
+                id(manual_mode_active) ||
+                id(ota_in_progress) ||
+                !id(rule_engine_enabled);
           then:
             - script.execute: safe_all_outputs_off
 

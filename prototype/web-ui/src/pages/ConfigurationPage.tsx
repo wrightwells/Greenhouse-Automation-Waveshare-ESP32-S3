@@ -13,17 +13,21 @@ interface ConfigurationPageProps {
 
 const sectionOrder: Array<ConfigField["section"]> = [
   "general",
+  "ruleEngine",
   "window",
   "ventilation",
   "irrigation",
+  "logging",
   "display"
 ];
 
 const sectionTitles: Record<ConfigField["section"], string> = {
   general: "General",
+  ruleEngine: "Rule engine",
   window: "Window actuator",
   ventilation: "Ventilation",
   irrigation: "Irrigation",
+  logging: "Logging",
   network: "Network",
   mqtt: "MQTT",
   display: "Display",

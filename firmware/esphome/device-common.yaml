@@ -1,0 +1,119 @@
+esphome:
+  name: ${device_slug}
+  friendly_name: ${friendly_name}
+  comment: ESP32-S3 greenhouse environmental control and irrigation controller
+  project:
+    name: ${project_name}
+    version: ${project_version}
+  on_boot:
+    priority: 800
+    then:
+      - script.execute: safe_all_outputs_off
+      - lambda: |-
+          id(last_failure_reason) = "none";
+          id(last_automation_action) = "boot_sequence_initialized";
+          id(window_motion_direction) = 0;
+          id(window_motion_target) = id(window_position_estimate);
+          id(last_motion_update_ms) = millis();
+          id(last_config_source) = "boot_restore";
+          id(newest_retained_log_timestamp) = "boot_pending_time_sync";
+          if (id(event_log_entry_count) == 0) {
+            id(oldest_retained_log_timestamp) = "boot_pending_time_sync";
+          }
+      - script.execute: note_log_event_rollover
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components:
+      - greenhouse_runtime
+
+preferences:
+  flash_write_interval: 1min
+
+logger:
+
+api:
+  reboot_timeout: 0s
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+    on_begin:
+      then:
+        - lambda: |-
+            id(ota_in_progress) = true;
+            id(last_failure_reason) = "ota_in_progress";
+            id(last_automation_action) = "ota_begin_safe_shutdown";
+            id(newest_retained_log_timestamp) = "ota_start_pending_time_sync";
+        - script.execute: safe_all_outputs_off
+        - script.execute: note_log_event_rollover
+    on_end:
+      then:
+        - lambda: |-
+            id(ota_in_progress) = false;
+            id(last_failure_reason) = "none";
+            id(last_automation_action) = "ota_completed";
+            id(newest_retained_log_timestamp) = "ota_success_pending_time_sync";
+        - script.execute: note_log_event_rollover
+
+safe_mode:
+
+i2c:
+  sda: GPIO42
+  scl: GPIO41
+  scan: false
+  frequency: 100kHz
+  id: board_i2c
+
+pca9554:
+  - id: relay_expander
+    address: 0x20
+
+mqtt:
+  broker: !secret mqtt_host
+  port: !secret mqtt_port
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  topic_prefix: !secret mqtt_topic_prefix
+  reboot_timeout: 0s
+  birth_message:
+    topic: ${device_slug}/status
+    payload: online
+  will_message:
+    topic: ${device_slug}/status
+    payload: offline
+
+web_server:
+  port: 80
+  version: 3
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+greenhouse_runtime:
+  id: runtime_store
+  web_port: 8081
+  max_rules: 32
+  max_log_entries: 256
+  retention_days: 7
+  max_log_json_bytes: 32768
+  flush_interval_seconds: 60
+  namespace_name: gh_runtime
+
+packages:
+  sensors: !include packages/sensors.yaml
+  control: !include packages/control.yaml
+  rule_engine: !include packages/rule_engine.yaml
+  logging: !include packages/logging.yaml
+  diagnostics: !include packages/diagnostics.yaml

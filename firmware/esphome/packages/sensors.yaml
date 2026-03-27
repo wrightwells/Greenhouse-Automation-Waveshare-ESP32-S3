@@ -1,10 +1,10 @@
 one_wire:
   - platform: gpio
-    pin: GPIO16
+    pin: ${ds18b20_pin}
 
 sensor:
   - platform: dht
-    pin: GPIO6
+    pin: ${dht_high_pin}
     model: DHT22
     update_interval: 30s
     temperature:
@@ -19,7 +19,7 @@ sensor:
       state_class: measurement
 
   - platform: dht
-    pin: GPIO7
+    pin: ${dht_low_pin}
     model: DHT22
     update_interval: 30s
     temperature:
@@ -42,7 +42,7 @@ sensor:
 
   - platform: adc
     id: soil_moisture_raw
-    pin: GPIO8
+    pin: ${soil_moisture_adc_pin}
     name: "${friendly_name} Soil Moisture Raw"
     update_interval: 30s
     attenuation: auto
@@ -74,7 +74,7 @@ sensor:
   - platform: pulse_counter
     id: flow_pulse_rate
     pin:
-      number: GPIO15
+      number: ${flow_sensor_pin}
       mode: INPUT_PULLUP
     name: "${friendly_name} Flow Pulse Rate"
     update_interval: 10s
@@ -100,7 +100,7 @@ binary_sensor:
   - platform: gpio
     id: door_state
     pin:
-      number: GPIO17
+      number: ${reed_switch_pin}
       mode: INPUT_PULLUP
       inverted: true
     name: "${friendly_name} Door State"

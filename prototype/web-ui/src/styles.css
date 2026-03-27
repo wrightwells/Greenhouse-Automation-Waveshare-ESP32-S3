@@ -251,6 +251,28 @@ select {
   gap: 8px;
 }
 
+.log-entry {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(211, 246, 220, 0.08);
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.log-entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: #9ac6a8;
+  font-size: 0.88rem;
+}
+
+.log-entry-message {
+  color: #d3f6dc;
+}
+
 .definition-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
