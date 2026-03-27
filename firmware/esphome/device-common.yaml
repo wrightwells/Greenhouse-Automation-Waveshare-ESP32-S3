@@ -110,6 +110,7 @@ greenhouse_runtime:
   max_log_json_bytes: 32768
   flush_interval_seconds: 60
   namespace_name: gh_runtime
+  test_ui_enabled: ${test_ui_enabled}
 
 packages:
   sensors: !include packages/sensors.yaml

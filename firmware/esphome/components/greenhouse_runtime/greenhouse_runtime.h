@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,16 @@ struct RuntimeLogEntry {
   std::string message;
 };
 
+struct NumericTestOverride {
+  bool enabled{false};
+  float value{0.0f};
+};
+
+struct BoolTestOverride {
+  bool enabled{false};
+  bool value{false};
+};
+
 class GreenhouseRuntime : public Component {
  public:
   void setup() override;
@@ -48,9 +59,21 @@ class GreenhouseRuntime : public Component {
   void set_max_log_json_bytes(size_t max_log_json_bytes);
   void set_flush_interval_seconds(uint32_t flush_interval_seconds);
   void set_namespace_name(const std::string &namespace_name);
+  void set_test_ui_enabled(bool test_ui_enabled);
 
   bool log_event(const std::string &category, const std::string &level, const std::string &message,
                  const std::string &source);
+
+  bool is_test_ui_enabled() const;
+  bool is_test_mode_active() const;
+  void set_test_mode_active(bool active);
+  bool has_numeric_test_override(const std::string &key) const;
+  float get_numeric_test_override(const std::string &key, float fallback_value) const;
+  void set_numeric_test_override(const std::string &key, bool enabled, float value);
+  bool has_bool_test_override(const std::string &key) const;
+  bool get_bool_test_override(const std::string &key, bool fallback_value) const;
+  void set_bool_test_override(const std::string &key, bool enabled, bool value);
+  void clear_test_overrides();
 
   size_t get_log_entry_count() const;
   size_t get_log_rollover_count() const;
@@ -86,6 +109,8 @@ class GreenhouseRuntime : public Component {
   void stop_http_server_();
   std::string build_index_html_() const;
   std::string build_status_json_() const;
+  std::string build_test_state_json_() const;
+  bool apply_test_state_json_(const std::string &json, std::string &error_message);
 
   static esp_err_t handle_index_(httpd_req_t *req);
   static esp_err_t handle_status_(httpd_req_t *req);
@@ -94,6 +119,9 @@ class GreenhouseRuntime : public Component {
   static esp_err_t handle_get_logs_(httpd_req_t *req);
   static esp_err_t handle_post_log_event_(httpd_req_t *req);
   static esp_err_t handle_clear_logs_(httpd_req_t *req);
+  static esp_err_t handle_get_test_state_(httpd_req_t *req);
+  static esp_err_t handle_post_test_state_(httpd_req_t *req);
+  static esp_err_t handle_clear_test_state_(httpd_req_t *req);
 
   std::string read_request_body_(httpd_req_t *req);
   void write_json_response_(httpd_req_t *req, const std::string &body, int status_code = 200) const;
@@ -106,6 +134,10 @@ class GreenhouseRuntime : public Component {
   size_t max_log_json_bytes_{32768};
   uint32_t flush_interval_ms_{60000};
   std::string namespace_name_{"gh_runtime"};
+  bool test_ui_enabled_{false};
+  bool test_mode_active_{false};
+  std::map<std::string, NumericTestOverride> numeric_test_overrides_;
+  std::map<std::string, BoolTestOverride> bool_test_overrides_;
   bool logging_faulted_{false};
   bool pruning_active_{false};
   size_t rollover_count_{0};

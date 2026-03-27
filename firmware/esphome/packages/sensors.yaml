@@ -8,37 +8,27 @@ sensor:
     model: DHT22
     update_interval: 30s
     temperature:
-      id: high_air_temperature
-      name: "${friendly_name} High Air Temperature"
-      device_class: temperature
-      state_class: measurement
+      id: high_air_temperature_physical
+      internal: true
     humidity:
-      id: high_air_humidity
-      name: "${friendly_name} High Air Humidity"
-      device_class: humidity
-      state_class: measurement
+      id: high_air_humidity_physical
+      internal: true
 
   - platform: dht
     pin: ${dht_low_pin}
     model: DHT22
     update_interval: 30s
     temperature:
-      id: low_air_temperature
-      name: "${friendly_name} Low Air Temperature"
-      device_class: temperature
-      state_class: measurement
+      id: low_air_temperature_physical
+      internal: true
     humidity:
-      id: low_air_humidity
-      name: "${friendly_name} Low Air Humidity"
-      device_class: humidity
-      state_class: measurement
+      id: low_air_humidity_physical
+      internal: true
 
   - platform: dallas_temp
-    id: intake_air_temperature
+    id: intake_air_temperature_physical
     address: 0x0000000000000000
-    name: "${friendly_name} Intake Air Temperature"
-    device_class: temperature
-    state_class: measurement
+    internal: true
 
   - platform: adc
     id: soil_moisture_raw
@@ -49,11 +39,8 @@ sensor:
     entity_category: diagnostic
 
   - platform: template
-    id: soil_moisture_percent
-    name: "${friendly_name} Soil Moisture"
-    unit_of_measurement: "%"
-    device_class: moisture
-    state_class: measurement
+    id: soil_moisture_percent_physical
+    internal: true
     update_interval: 30s
     lambda: |-
       const float wet = id(soil_moisture_wet_calibration).state;
@@ -83,11 +70,8 @@ sensor:
     internal: true
 
   - platform: template
-    id: flow_rate_lpm
-    name: "${friendly_name} Flow Rate"
-    unit_of_measurement: "L/min"
-    icon: mdi:water-pump
-    state_class: measurement
+    id: flow_rate_lpm_physical
+    internal: true
     update_interval: 10s
     lambda: |-
       const float pulses_per_litre = id(flow_pulses_per_litre).state;
@@ -96,12 +80,130 @@ sensor:
       }
       return id(flow_pulse_rate).state / pulses_per_litre;
 
+  - platform: template
+    id: high_air_temperature
+    name: "${friendly_name} High Air Temperature"
+    device_class: temperature
+    state_class: measurement
+    update_interval: 5s
+    lambda: |-
+      if (id(runtime_store).has_numeric_test_override("high_air_temperature")) {
+        return id(runtime_store).get_numeric_test_override("high_air_temperature", 0.0f);
+      }
+      if (!id(high_air_temperature_physical).has_state()) {
+        return NAN;
+      }
+      return id(high_air_temperature_physical).state;
+
+  - platform: template
+    id: high_air_humidity
+    name: "${friendly_name} High Air Humidity"
+    device_class: humidity
+    state_class: measurement
+    unit_of_measurement: "%"
+    update_interval: 5s
+    lambda: |-
+      if (id(runtime_store).has_numeric_test_override("high_air_humidity")) {
+        return id(runtime_store).get_numeric_test_override("high_air_humidity", 0.0f);
+      }
+      if (!id(high_air_humidity_physical).has_state()) {
+        return NAN;
+      }
+      return id(high_air_humidity_physical).state;
+
+  - platform: template
+    id: low_air_temperature
+    name: "${friendly_name} Low Air Temperature"
+    device_class: temperature
+    state_class: measurement
+    update_interval: 5s
+    lambda: |-
+      if (id(runtime_store).has_numeric_test_override("low_air_temperature")) {
+        return id(runtime_store).get_numeric_test_override("low_air_temperature", 0.0f);
+      }
+      if (!id(low_air_temperature_physical).has_state()) {
+        return NAN;
+      }
+      return id(low_air_temperature_physical).state;
+
+  - platform: template
+    id: low_air_humidity
+    name: "${friendly_name} Low Air Humidity"
+    device_class: humidity
+    state_class: measurement
+    unit_of_measurement: "%"
+    update_interval: 5s
+    lambda: |-
+      if (id(runtime_store).has_numeric_test_override("low_air_humidity")) {
+        return id(runtime_store).get_numeric_test_override("low_air_humidity", 0.0f);
+      }
+      if (!id(low_air_humidity_physical).has_state()) {
+        return NAN;
+      }
+      return id(low_air_humidity_physical).state;
+
+  - platform: template
+    id: intake_air_temperature
+    name: "${friendly_name} Intake Air Temperature"
+    device_class: temperature
+    state_class: measurement
+    update_interval: 5s
+    lambda: |-
+      if (id(runtime_store).has_numeric_test_override("intake_air_temperature")) {
+        return id(runtime_store).get_numeric_test_override("intake_air_temperature", 0.0f);
+      }
+      if (!id(intake_air_temperature_physical).has_state()) {
+        return NAN;
+      }
+      return id(intake_air_temperature_physical).state;
+
+  - platform: template
+    id: soil_moisture_percent
+    name: "${friendly_name} Soil Moisture"
+    unit_of_measurement: "%"
+    device_class: moisture
+    state_class: measurement
+    update_interval: 5s
+    lambda: |-
+      if (id(runtime_store).has_numeric_test_override("soil_moisture_percent")) {
+        return id(runtime_store).get_numeric_test_override("soil_moisture_percent", 0.0f);
+      }
+      if (!id(soil_moisture_percent_physical).has_state()) {
+        return NAN;
+      }
+      return id(soil_moisture_percent_physical).state;
+
+  - platform: template
+    id: flow_rate_lpm
+    name: "${friendly_name} Flow Rate"
+    unit_of_measurement: "L/min"
+    icon: mdi:water-pump
+    state_class: measurement
+    update_interval: 5s
+    lambda: |-
+      if (id(runtime_store).has_numeric_test_override("flow_rate_lpm")) {
+        return id(runtime_store).get_numeric_test_override("flow_rate_lpm", 0.0f);
+      }
+      if (!id(flow_rate_lpm_physical).has_state()) {
+        return NAN;
+      }
+      return id(flow_rate_lpm_physical).state;
+
 binary_sensor:
   - platform: gpio
-    id: door_state
+    id: door_state_physical
     pin:
       number: ${reed_switch_pin}
       mode: INPUT_PULLUP
       inverted: true
+    internal: true
+
+  - platform: template
+    id: door_state
     name: "${friendly_name} Door State"
     device_class: door
+    lambda: |-
+      if (id(runtime_store).has_bool_test_override("door_state")) {
+        return id(runtime_store).get_bool_test_override("door_state", false);
+      }
+      return id(door_state_physical).state;

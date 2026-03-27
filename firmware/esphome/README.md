@@ -39,6 +39,8 @@ This directory contains the ESPHome-first firmware scaffold for the greenhouse c
 - custom components should only be added if the required behaviour cannot be expressed cleanly with ESPHome-native features
 - first-pass local admin/status access is provided by the ESPHome web server and exposed entities
 - the runtime component provides a dedicated rule-editor and log-view page on port `8081`
+- the runtime component can also expose a compile-time-enabled automation test page for bench work; enable it by setting `test_ui_enabled: "true"` in `device-ethernet.yaml` or `device-wifi.yaml`
+- test overrides are RAM-only and are intended to drive the live automation logic without touching the persisted rule table
 - event logging is bounded and prunes oldest entries first so logging cannot grow without limit and crowd out control stability
 - retained log scope is intentionally narrow: only persisted rule-table changes and sensor fault/fault-clear transitions are stored
 - display support remains a follow-up once the exact hardware model is fixed

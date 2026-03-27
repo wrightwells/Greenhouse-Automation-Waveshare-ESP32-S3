@@ -31,7 +31,7 @@ static const char *const INDEX_HTML = R"HTML(
     header { padding: 16px 20px; background: #214a39; color: #f4fbf6; }
     main { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; padding: 16px; }
     section { background: white; border-radius: 14px; padding: 16px; box-shadow: 0 10px 24px rgba(23, 50, 40, 0.08); }
-    h1, h2 { margin: 0 0 12px; }
+    h1, h2, h3 { margin: 0 0 12px; }
     table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; padding: 8px; border-bottom: 1px solid #dde7df; vertical-align: top; }
     input, select, button, textarea { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #b8cbbf; }
@@ -43,13 +43,18 @@ static const char *const INDEX_HTML = R"HTML(
     .muted { color: #5f7169; }
     .log-entry { border-bottom: 1px solid #dde7df; padding: 10px 0; }
     .log-meta { display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.9rem; color: #5f7169; margin-bottom: 4px; }
+    .full-span { grid-column: 1 / -1; }
+    .test-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+    .test-card { border: 1px solid #dde7df; border-radius: 12px; padding: 12px; }
+    .test-card label { display: block; margin-bottom: 6px; font-weight: 600; }
+    .hidden { display: none; }
     @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <header>
     <h1>Greenhouse Runtime</h1>
-    <div class="muted">Flash-backed rule store and bounded 7-day event log</div>
+    <div class="muted">Flash-backed rule store, bounded event log, and optional compile-time test controls</div>
   </header>
   <main>
     <section>
@@ -82,14 +87,7 @@ static const char *const INDEX_HTML = R"HTML(
       <div class="row">
         <select id="logFilter">
           <option value="">All Categories</option>
-          <option value="system">System</option>
-          <option value="automation">Automation</option>
-          <option value="irrigation">Irrigation</option>
-          <option value="ventilation">Ventilation</option>
-          <option value="window">Window</option>
-          <option value="network">Network</option>
           <option value="config">Config</option>
-          <option value="ota">OTA</option>
           <option value="fault">Fault</option>
         </select>
         <button id="refreshLogs" class="secondary">Refresh</button>
@@ -98,13 +96,37 @@ static const char *const INDEX_HTML = R"HTML(
       <div id="logStatus" class="muted">Loading status...</div>
       <div id="logEntries"></div>
     </section>
+    <section id="testPageSection" class="full-span hidden">
+      <h2>Automation Test Page</h2>
+      <div class="row">
+        <label><input id="testModeActive" type="checkbox" /> Enable test overrides</label>
+        <button id="saveTestState">Apply Test Values</button>
+        <button id="clearTestState" class="secondary">Clear Test Values</button>
+        <span id="testStatus" class="pill">Disabled</span>
+      </div>
+      <p class="muted">When enabled at compile time, these values override the live sensor values used by the local automation logic. This is for bench testing only.</p>
+      <div class="test-grid" id="testGrid"></div>
+    </section>
   </main>
   <script>
     const ruleFields = ["high_air_temperature", "low_air_temperature", "high_air_humidity", "low_air_humidity", "intake_air_temperature", "soil_moisture", "flow_rate", "door_state", "window_position", "output_state", "manual_mode", "fault_state"];
     const ruleOperators = ["above", "below", "inside_range", "outside_range", "valid", "invalid", "boolean_match", "hysteresis_state", "cooldown_state"];
     const ruleActions = ["pump_on", "pump_off", "intake_fan_on", "intake_fan_off", "exhaust_fan_on", "exhaust_fan_off", "window_open", "window_close", "window_target", "inhibit_irrigation", "inhibit_ventilation", "log_only"];
     const ruleClasses = ["irrigation", "ventilation", "window", "diagnostic"];
+    const testNumericFields = [
+      { key: "high_air_temperature", label: "High air temperature", step: "0.1" },
+      { key: "high_air_humidity", label: "High air humidity", step: "0.1" },
+      { key: "low_air_temperature", label: "Low air temperature", step: "0.1" },
+      { key: "low_air_humidity", label: "Low air humidity", step: "0.1" },
+      { key: "intake_air_temperature", label: "Intake air temperature", step: "0.1" },
+      { key: "soil_moisture_percent", label: "Soil moisture", step: "0.1" },
+      { key: "flow_rate_lpm", label: "Flow rate", step: "0.1" }
+    ];
+    const testBoolFields = [
+      { key: "door_state", label: "Door open" }
+    ];
     let rules = [];
+    let testState = { test_ui_enabled: false, test_mode_active: false, numeric_overrides: {}, bool_overrides: {} };
 
     function optionList(values, selected) {
       return values.map((value) => `<option value="${value}" ${value === selected ? "selected" : ""}>${value}</option>`).join("");
@@ -164,6 +186,68 @@ static const char *const INDEX_HTML = R"HTML(
       });
     }
 
+    function renderTestPage() {
+      const section = document.getElementById("testPageSection");
+      const grid = document.getElementById("testGrid");
+      if (!testState.test_ui_enabled) {
+        section.classList.add("hidden");
+        return;
+      }
+      section.classList.remove("hidden");
+      document.getElementById("testModeActive").checked = !!testState.test_mode_active;
+      document.getElementById("testStatus").textContent = testState.test_mode_active ? "Overrides active" : "Overrides idle";
+      grid.innerHTML = "";
+
+      testNumericFields.forEach((field) => {
+        const override = testState.numeric_overrides[field.key] || { enabled: false, value: 0 };
+        const card = document.createElement("div");
+        card.className = "test-card";
+        card.innerHTML = `
+          <label>${field.label}</label>
+          <div class="row">
+            <label><input type="checkbox" data-test-kind="numeric-enabled" data-key="${field.key}" ${override.enabled ? "checked" : ""} /> Override</label>
+          </div>
+          <input type="number" step="${field.step}" data-test-kind="numeric-value" data-key="${field.key}" value="${override.value ?? 0}" />
+        `;
+        grid.appendChild(card);
+      });
+
+      testBoolFields.forEach((field) => {
+        const override = testState.bool_overrides[field.key] || { enabled: false, value: false };
+        const card = document.createElement("div");
+        card.className = "test-card";
+        card.innerHTML = `
+          <label>${field.label}</label>
+          <div class="row">
+            <label><input type="checkbox" data-test-kind="bool-enabled" data-key="${field.key}" ${override.enabled ? "checked" : ""} /> Override</label>
+            <label><input type="checkbox" data-test-kind="bool-value" data-key="${field.key}" ${override.value ? "checked" : ""} /> Simulated true</label>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+
+      grid.querySelectorAll("[data-test-kind]").forEach((el) => {
+        el.addEventListener("change", (event) => {
+          const target = event.target;
+          const kind = target.dataset.testKind;
+          const key = target.dataset.key;
+          if (kind === "numeric-enabled") {
+            testState.numeric_overrides[key] = testState.numeric_overrides[key] || { enabled: false, value: 0 };
+            testState.numeric_overrides[key].enabled = target.checked;
+          } else if (kind === "numeric-value") {
+            testState.numeric_overrides[key] = testState.numeric_overrides[key] || { enabled: false, value: 0 };
+            testState.numeric_overrides[key].value = Number(target.value);
+          } else if (kind === "bool-enabled") {
+            testState.bool_overrides[key] = testState.bool_overrides[key] || { enabled: false, value: false };
+            testState.bool_overrides[key].enabled = target.checked;
+          } else if (kind === "bool-value") {
+            testState.bool_overrides[key] = testState.bool_overrides[key] || { enabled: false, value: false };
+            testState.bool_overrides[key].value = target.checked;
+          }
+        });
+      });
+    }
+
     async function loadRules() {
       const response = await fetch("/api/rules");
       const data = await response.json();
@@ -208,6 +292,25 @@ static const char *const INDEX_HTML = R"HTML(
       });
     }
 
+    async function loadTestState() {
+      const response = await fetch("/api/test-state");
+      const data = await response.json();
+      testState = data;
+      renderTestPage();
+    }
+
+    async function saveTestState() {
+      testState.test_mode_active = document.getElementById("testModeActive").checked;
+      const response = await fetch("/api/test-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(testState)
+      });
+      const data = await response.json();
+      document.getElementById("testStatus").textContent = data.message || (testState.test_mode_active ? "Overrides active" : "Overrides idle");
+      await loadTestState();
+    }
+
     document.getElementById("addRule").addEventListener("click", () => {
       rules.push({
         id: `rule_${Date.now()}`,
@@ -226,6 +329,11 @@ static const char *const INDEX_HTML = R"HTML(
     document.getElementById("saveRules").addEventListener("click", saveRules);
     document.getElementById("refreshLogs").addEventListener("click", loadLogs);
     document.getElementById("logFilter").addEventListener("change", loadLogs);
+    document.getElementById("saveTestState").addEventListener("click", saveTestState);
+    document.getElementById("clearTestState").addEventListener("click", async () => {
+      await fetch("/api/test-state/clear", { method: "POST" });
+      await loadTestState();
+    });
     document.getElementById("clearLogs").addEventListener("click", async () => {
       await fetch("/api/logs/clear", { method: "POST" });
       await loadLogs();
@@ -233,6 +341,7 @@ static const char *const INDEX_HTML = R"HTML(
 
     loadRules();
     loadLogs();
+    loadTestState();
     setInterval(loadLogs, 15000);
   </script>
 </body>
@@ -275,6 +384,57 @@ void GreenhouseRuntime::set_namespace_name(const std::string &namespace_name) {
   if (this->namespace_name_.empty()) {
     this->namespace_name_ = "gh_runtime";
   }
+}
+void GreenhouseRuntime::set_test_ui_enabled(bool test_ui_enabled) { this->test_ui_enabled_ = test_ui_enabled; }
+
+bool GreenhouseRuntime::is_test_ui_enabled() const { return this->test_ui_enabled_; }
+bool GreenhouseRuntime::is_test_mode_active() const { return this->test_ui_enabled_ && this->test_mode_active_; }
+void GreenhouseRuntime::set_test_mode_active(bool active) { this->test_mode_active_ = this->test_ui_enabled_ && active; }
+
+bool GreenhouseRuntime::has_numeric_test_override(const std::string &key) const {
+  if (!this->is_test_mode_active()) {
+    return false;
+  }
+  const auto it = this->numeric_test_overrides_.find(key);
+  return it != this->numeric_test_overrides_.end() && it->second.enabled;
+}
+
+float GreenhouseRuntime::get_numeric_test_override(const std::string &key, float fallback_value) const {
+  const auto it = this->numeric_test_overrides_.find(key);
+  if (!this->is_test_mode_active() || it == this->numeric_test_overrides_.end() || !it->second.enabled) {
+    return fallback_value;
+  }
+  return it->second.value;
+}
+
+void GreenhouseRuntime::set_numeric_test_override(const std::string &key, bool enabled, float value) {
+  this->numeric_test_overrides_[key] = {enabled, value};
+}
+
+bool GreenhouseRuntime::has_bool_test_override(const std::string &key) const {
+  if (!this->is_test_mode_active()) {
+    return false;
+  }
+  const auto it = this->bool_test_overrides_.find(key);
+  return it != this->bool_test_overrides_.end() && it->second.enabled;
+}
+
+bool GreenhouseRuntime::get_bool_test_override(const std::string &key, bool fallback_value) const {
+  const auto it = this->bool_test_overrides_.find(key);
+  if (!this->is_test_mode_active() || it == this->bool_test_overrides_.end() || !it->second.enabled) {
+    return fallback_value;
+  }
+  return it->second.value;
+}
+
+void GreenhouseRuntime::set_bool_test_override(const std::string &key, bool enabled, bool value) {
+  this->bool_test_overrides_[key] = {enabled, value};
+}
+
+void GreenhouseRuntime::clear_test_overrides() {
+  this->test_mode_active_ = false;
+  this->numeric_test_overrides_.clear();
+  this->bool_test_overrides_.clear();
 }
 
 bool GreenhouseRuntime::log_event(const std::string &category, const std::string &level, const std::string &message,
@@ -683,7 +843,7 @@ bool GreenhouseRuntime::start_http_server_() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = this->web_port_;
   config.ctrl_port = static_cast<uint16_t>(this->web_port_ + 1);
-  config.max_uri_handlers = 8;
+  config.max_uri_handlers = 12;
   esp_err_t err = httpd_start(&this->http_server_, &config);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "HTTP server start failed: %s", esp_err_to_name(err));
@@ -732,6 +892,24 @@ bool GreenhouseRuntime::start_http_server_() {
   logs_clear_uri.handler = &GreenhouseRuntime::handle_clear_logs_;
   logs_clear_uri.user_ctx = this;
 
+  httpd_uri_t test_state_get_uri = {};
+  test_state_get_uri.uri = "/api/test-state";
+  test_state_get_uri.method = HTTP_GET;
+  test_state_get_uri.handler = &GreenhouseRuntime::handle_get_test_state_;
+  test_state_get_uri.user_ctx = this;
+
+  httpd_uri_t test_state_post_uri = {};
+  test_state_post_uri.uri = "/api/test-state";
+  test_state_post_uri.method = HTTP_POST;
+  test_state_post_uri.handler = &GreenhouseRuntime::handle_post_test_state_;
+  test_state_post_uri.user_ctx = this;
+
+  httpd_uri_t test_state_clear_uri = {};
+  test_state_clear_uri.uri = "/api/test-state/clear";
+  test_state_clear_uri.method = HTTP_POST;
+  test_state_clear_uri.handler = &GreenhouseRuntime::handle_clear_test_state_;
+  test_state_clear_uri.user_ctx = this;
+
   httpd_register_uri_handler(this->http_server_, &index_uri);
   httpd_register_uri_handler(this->http_server_, &status_uri);
   httpd_register_uri_handler(this->http_server_, &rules_get_uri);
@@ -739,6 +917,9 @@ bool GreenhouseRuntime::start_http_server_() {
   httpd_register_uri_handler(this->http_server_, &logs_get_uri);
   httpd_register_uri_handler(this->http_server_, &log_post_uri);
   httpd_register_uri_handler(this->http_server_, &logs_clear_uri);
+  httpd_register_uri_handler(this->http_server_, &test_state_get_uri);
+  httpd_register_uri_handler(this->http_server_, &test_state_post_uri);
+  httpd_register_uri_handler(this->http_server_, &test_state_clear_uri);
   return true;
 }
 
@@ -761,6 +942,8 @@ std::string GreenhouseRuntime::build_status_json_() const {
   cJSON_AddStringToObject(root, "oldest_retained_timestamp", this->get_oldest_retained_timestamp_text().c_str());
   cJSON_AddStringToObject(root, "newest_retained_timestamp", this->get_newest_retained_timestamp_text().c_str());
   cJSON_AddStringToObject(root, "last_prune_result", this->last_prune_result_.c_str());
+  cJSON_AddBoolToObject(root, "test_ui_enabled", this->test_ui_enabled_);
+  cJSON_AddBoolToObject(root, "test_mode_active", this->is_test_mode_active());
   char *rendered = cJSON_PrintUnformatted(root);
   std::string output = rendered != nullptr ? rendered : "{}";
   if (rendered != nullptr) {
@@ -768,6 +951,110 @@ std::string GreenhouseRuntime::build_status_json_() const {
   }
   cJSON_Delete(root);
   return output;
+}
+
+std::string GreenhouseRuntime::build_test_state_json_() const {
+  cJSON *root = cJSON_CreateObject();
+  cJSON_AddBoolToObject(root, "test_ui_enabled", this->test_ui_enabled_);
+  cJSON_AddBoolToObject(root, "test_mode_active", this->is_test_mode_active());
+
+  cJSON *numeric = cJSON_CreateObject();
+  for (const auto &pair : this->numeric_test_overrides_) {
+    cJSON *entry = cJSON_CreateObject();
+    cJSON_AddBoolToObject(entry, "enabled", pair.second.enabled);
+    cJSON_AddNumberToObject(entry, "value", pair.second.value);
+    cJSON_AddItemToObject(numeric, pair.first.c_str(), entry);
+  }
+  cJSON_AddItemToObject(root, "numeric_overrides", numeric);
+
+  cJSON *bools = cJSON_CreateObject();
+  for (const auto &pair : this->bool_test_overrides_) {
+    cJSON *entry = cJSON_CreateObject();
+    cJSON_AddBoolToObject(entry, "enabled", pair.second.enabled);
+    cJSON_AddBoolToObject(entry, "value", pair.second.value);
+    cJSON_AddItemToObject(bools, pair.first.c_str(), entry);
+  }
+  cJSON_AddItemToObject(root, "bool_overrides", bools);
+
+  char *rendered = cJSON_PrintUnformatted(root);
+  std::string output = rendered != nullptr ? rendered : "{}";
+  if (rendered != nullptr) {
+    cJSON_free(rendered);
+  }
+  cJSON_Delete(root);
+  return output;
+}
+
+bool GreenhouseRuntime::apply_test_state_json_(const std::string &json, std::string &error_message) {
+  if (!this->test_ui_enabled_) {
+    error_message = "test page not enabled in this build";
+    return false;
+  }
+
+  cJSON *root = cJSON_Parse(json.c_str());
+  if (root == nullptr || !cJSON_IsObject(root)) {
+    if (root != nullptr) {
+      cJSON_Delete(root);
+    }
+    error_message = "request body must be a JSON object";
+    return false;
+  }
+
+  const cJSON *mode = cJSON_GetObjectItem(root, "test_mode_active");
+  if (mode != nullptr && !cJSON_IsBool(mode)) {
+    error_message = "test_mode_active must be a boolean";
+    cJSON_Delete(root);
+    return false;
+  }
+
+  std::map<std::string, NumericTestOverride> numeric;
+  std::map<std::string, BoolTestOverride> bools;
+
+  const cJSON *numeric_root = cJSON_GetObjectItem(root, "numeric_overrides");
+  if (numeric_root != nullptr && cJSON_IsObject(numeric_root)) {
+    cJSON *entry = nullptr;
+    cJSON_ArrayForEach(entry, numeric_root) {
+      if (!cJSON_IsObject(entry)) {
+        continue;
+      }
+      NumericTestOverride override_value;
+      const cJSON *enabled = cJSON_GetObjectItem(entry, "enabled");
+      const cJSON *value = cJSON_GetObjectItem(entry, "value");
+      if (enabled != nullptr && cJSON_IsBool(enabled)) {
+        override_value.enabled = cJSON_IsTrue(enabled);
+      }
+      if (value != nullptr && cJSON_IsNumber(value)) {
+        override_value.value = value->valuedouble;
+      }
+      numeric[entry->string] = override_value;
+    }
+  }
+
+  const cJSON *bool_root = cJSON_GetObjectItem(root, "bool_overrides");
+  if (bool_root != nullptr && cJSON_IsObject(bool_root)) {
+    cJSON *entry = nullptr;
+    cJSON_ArrayForEach(entry, bool_root) {
+      if (!cJSON_IsObject(entry)) {
+        continue;
+      }
+      BoolTestOverride override_value;
+      const cJSON *enabled = cJSON_GetObjectItem(entry, "enabled");
+      const cJSON *value = cJSON_GetObjectItem(entry, "value");
+      if (enabled != nullptr && cJSON_IsBool(enabled)) {
+        override_value.enabled = cJSON_IsTrue(enabled);
+      }
+      if (value != nullptr && cJSON_IsBool(value)) {
+        override_value.value = cJSON_IsTrue(value);
+      }
+      bools[entry->string] = override_value;
+    }
+  }
+
+  this->numeric_test_overrides_ = std::move(numeric);
+  this->bool_test_overrides_ = std::move(bools);
+  this->set_test_mode_active(mode != nullptr && cJSON_IsTrue(mode));
+  cJSON_Delete(root);
+  return true;
 }
 
 esp_err_t GreenhouseRuntime::handle_index_(httpd_req_t *req) {
@@ -865,6 +1152,35 @@ esp_err_t GreenhouseRuntime::handle_clear_logs_(httpd_req_t *req) {
   runtime->last_prune_result_ = "logs_cleared_by_local_web";
   runtime->save_logs_();
   runtime->write_json_response_(req, "{\"message\":\"logs_cleared\"}");
+  return ESP_OK;
+}
+
+esp_err_t GreenhouseRuntime::handle_get_test_state_(httpd_req_t *req) {
+  auto *runtime = static_cast<GreenhouseRuntime *>(req->user_ctx);
+  runtime->write_json_response_(req, runtime->build_test_state_json_());
+  return ESP_OK;
+}
+
+esp_err_t GreenhouseRuntime::handle_post_test_state_(httpd_req_t *req) {
+  auto *runtime = static_cast<GreenhouseRuntime *>(req->user_ctx);
+  const std::string body = runtime->read_request_body_(req);
+  if (body.empty()) {
+    runtime->write_error_response_(req, 400, "request body required");
+    return ESP_OK;
+  }
+  std::string error_message;
+  if (!runtime->apply_test_state_json_(body, error_message)) {
+    runtime->write_error_response_(req, 400, error_message);
+    return ESP_OK;
+  }
+  runtime->write_json_response_(req, "{\"message\":\"test_state_applied\"}");
+  return ESP_OK;
+}
+
+esp_err_t GreenhouseRuntime::handle_clear_test_state_(httpd_req_t *req) {
+  auto *runtime = static_cast<GreenhouseRuntime *>(req->user_ctx);
+  runtime->clear_test_overrides();
+  runtime->write_json_response_(req, "{\"message\":\"test_state_cleared\"}");
   return ESP_OK;
 }
 

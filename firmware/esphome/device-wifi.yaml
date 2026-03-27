@@ -9,6 +9,7 @@ substitutions:
   dht_high_pin: GPIO21
   dht_low_pin: GPIO47
   ds18b20_pin: GPIO48
+  test_ui_enabled: "false"
 
 packages:
   common: !include device-common.yaml

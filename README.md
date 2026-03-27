@@ -91,6 +91,7 @@ Runtime component status:
 - the same component maintains a bounded event log with oldest-first pruning by age, entry count, and serialized byte budget
 - retained log entries are intentionally limited to rule-table changes and sensor fault/fault-clear transitions
 - the component serves a dedicated local runtime UI on `http://<device-ip>:8081/`
+- an optional compile-time test page can be enabled to inject sensor values into the live automation path for bench testing
 
 ## Build, Validate, and Deploy
 
@@ -118,6 +119,8 @@ esphome config firmware/esphome/device-wifi.yaml
 esphome compile firmware/esphome/device-wifi.yaml
 esphome run firmware/esphome/device-wifi.yaml
 ```
+
+To enable the embedded automation test page for a bench build, set `test_ui_enabled: "true"` in the chosen entrypoint file before compiling. The page then appears in the runtime UI on port `8081` and lets you override sensor values without changing the rule table.
 
 ## OTA Expectations
 
