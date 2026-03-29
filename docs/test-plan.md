@@ -2,6 +2,10 @@
 
 This test plan is the day-one validation scaffold derived from the functional specification. It is intended to guide bench work, Home Assistant integration testing, OTA validation, and safe-failure testing as implementation proceeds.
 
+Detailed runnable test cases are kept separately in:
+
+- [Detailed test cases](/home/ww/src/Greenhouse-Automation-Waveshare-ESP32-S3/docs/testing-cases.md)
+
 ## Test Strategy
 
 Validation should combine:
@@ -114,7 +118,7 @@ Validation should combine:
 
 ## Expansion
 
-As implementation progresses, expand this file into runnable test procedures and link per-area notes under `test/bench`, `test/integration`, and `test/ota`.
+As implementation progresses, keep this file as the high-level strategy and maintain runnable test procedures in the separate detailed test-case document plus notes under `test/bench`, `test/integration`, and `test/ota`.
 
 ## Current Validation Notes
 

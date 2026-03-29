@@ -39,6 +39,7 @@ See [hardware/pinout.md](/home/ww/src/Greenhouse-Automation-Waveshare-ESP32-S3/h
 ## Repo Layout
 
 - `docs/`: specification, test planning, hardware notes, and Home Assistant integration notes
+- `docs/testing-cases.md`: separate detailed test-case document derived from the specification and current code
 - `docs/rule-engine-design.md`: local rule-table automation design and arbitration model
 - `docs/event-log-design.md`: bounded 7-day logging design and event schema
 - `docs/home-assistant-implementation.md`: Home Assistant entity map, helper patterns, YAML examples, and dashboard guidance
