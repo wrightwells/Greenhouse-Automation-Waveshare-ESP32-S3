@@ -44,9 +44,14 @@ static const char *const INDEX_HTML = R"HTML(
     .log-entry { border-bottom: 1px solid #dde7df; padding: 10px 0; }
     .log-meta { display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.9rem; color: #5f7169; margin-bottom: 4px; }
     .full-span { grid-column: 1 / -1; }
-    .test-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
-    .test-card { border: 1px solid #dde7df; border-radius: 12px; padding: 12px; }
+    .test-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .test-card { border: 1px solid #dde7df; border-radius: 12px; padding: 12px; display: grid; gap: 10px; }
+    .test-card h3 { margin: 0; font-size: 1rem; }
     .test-card label { display: block; margin-bottom: 6px; font-weight: 600; }
+    .test-meta { display: grid; gap: 4px; color: #5f7169; font-size: 0.92rem; }
+    .source-chip { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; background: #d7efe0; color: #173228; }
+    .source-chip.manual { background: #f4e4c7; color: #8a5a08; }
+    .test-header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
     .hidden { display: none; }
     @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
   </style>
@@ -104,7 +109,7 @@ static const char *const INDEX_HTML = R"HTML(
         <button id="clearTestState" class="secondary">Clear Test Values</button>
         <span id="testStatus" class="pill">Disabled</span>
       </div>
-      <p class="muted">When enabled at compile time, these values override the live sensor values used by the local automation logic. This is for bench testing only.</p>
+      <p class="muted">When enabled at compile time, each sensor can be switched individually between live data and a manual bench value. Manual values feed the same effective sensor path used by local automation.</p>
       <div class="test-grid" id="testGrid"></div>
     </section>
   </main>
@@ -199,27 +204,58 @@ static const char *const INDEX_HTML = R"HTML(
       grid.innerHTML = "";
 
       testNumericFields.forEach((field) => {
+        const snapshot = (testState.numeric_sensors && testState.numeric_sensors[field.key]) || {};
         const override = testState.numeric_overrides[field.key] || { enabled: false, value: 0 };
+        const mode = override.enabled ? "manual" : "live";
         const card = document.createElement("div");
         card.className = "test-card";
         card.innerHTML = `
-          <label>${field.label}</label>
-          <div class="row">
-            <label><input type="checkbox" data-test-kind="numeric-enabled" data-key="${field.key}" ${override.enabled ? "checked" : ""} /> Override</label>
+          <div class="test-header">
+            <div>
+              <h3>${field.label}</h3>
+              <div class="test-meta">
+                <span>Effective: ${snapshot.effective_available ? snapshot.effective_value : "unavailable"}</span>
+                <span>Live: ${snapshot.live_available ? snapshot.live_value : "unavailable"}</span>
+                <span>Manual: ${override.value ?? 0}</span>
+              </div>
+            </div>
+            <span class="source-chip ${mode}">${mode}</span>
           </div>
+          <label>Source</label>
+          <select data-test-kind="numeric-mode" data-key="${field.key}">
+            <option value="live" ${mode === "live" ? "selected" : ""}>live</option>
+            <option value="manual" ${mode === "manual" ? "selected" : ""}>manual</option>
+          </select>
+          <label>Manual test value</label>
           <input type="number" step="${field.step}" data-test-kind="numeric-value" data-key="${field.key}" value="${override.value ?? 0}" />
         `;
         grid.appendChild(card);
       });
 
       testBoolFields.forEach((field) => {
+        const snapshot = (testState.bool_sensors && testState.bool_sensors[field.key]) || {};
         const override = testState.bool_overrides[field.key] || { enabled: false, value: false };
+        const mode = override.enabled ? "manual" : "live";
         const card = document.createElement("div");
         card.className = "test-card";
         card.innerHTML = `
-          <label>${field.label}</label>
+          <div class="test-header">
+            <div>
+              <h3>${field.label}</h3>
+              <div class="test-meta">
+                <span>Effective: ${snapshot.effective_available ? (snapshot.effective_value ? "true" : "false") : "unavailable"}</span>
+                <span>Live: ${snapshot.live_available ? (snapshot.live_value ? "true" : "false") : "unavailable"}</span>
+                <span>Manual: ${override.value ? "true" : "false"}</span>
+              </div>
+            </div>
+            <span class="source-chip ${mode}">${mode}</span>
+          </div>
+          <label>Source</label>
+          <select data-test-kind="bool-mode" data-key="${field.key}">
+            <option value="live" ${mode === "live" ? "selected" : ""}>live</option>
+            <option value="manual" ${mode === "manual" ? "selected" : ""}>manual</option>
+          </select>
           <div class="row">
-            <label><input type="checkbox" data-test-kind="bool-enabled" data-key="${field.key}" ${override.enabled ? "checked" : ""} /> Override</label>
             <label><input type="checkbox" data-test-kind="bool-value" data-key="${field.key}" ${override.value ? "checked" : ""} /> Simulated true</label>
           </div>
         `;
@@ -231,15 +267,15 @@ static const char *const INDEX_HTML = R"HTML(
           const target = event.target;
           const kind = target.dataset.testKind;
           const key = target.dataset.key;
-          if (kind === "numeric-enabled") {
+          if (kind === "numeric-mode") {
             testState.numeric_overrides[key] = testState.numeric_overrides[key] || { enabled: false, value: 0 };
-            testState.numeric_overrides[key].enabled = target.checked;
+            testState.numeric_overrides[key].enabled = target.value === "manual";
           } else if (kind === "numeric-value") {
             testState.numeric_overrides[key] = testState.numeric_overrides[key] || { enabled: false, value: 0 };
             testState.numeric_overrides[key].value = Number(target.value);
-          } else if (kind === "bool-enabled") {
+          } else if (kind === "bool-mode") {
             testState.bool_overrides[key] = testState.bool_overrides[key] || { enabled: false, value: false };
-            testState.bool_overrides[key].enabled = target.checked;
+            testState.bool_overrides[key].enabled = target.value === "manual";
           } else if (kind === "bool-value") {
             testState.bool_overrides[key] = testState.bool_overrides[key] || { enabled: false, value: false };
             testState.bool_overrides[key].value = target.checked;
@@ -343,6 +379,7 @@ static const char *const INDEX_HTML = R"HTML(
     loadLogs();
     loadTestState();
     setInterval(loadLogs, 15000);
+    setInterval(loadTestState, 5000);
   </script>
 </body>
 </html>
@@ -386,6 +423,18 @@ void GreenhouseRuntime::set_namespace_name(const std::string &namespace_name) {
   }
 }
 void GreenhouseRuntime::set_test_ui_enabled(bool test_ui_enabled) { this->test_ui_enabled_ = test_ui_enabled; }
+void GreenhouseRuntime::set_live_numeric_sensor(const std::string &key, sensor::Sensor *sensor) {
+  this->live_numeric_sensors_[key] = sensor;
+}
+void GreenhouseRuntime::set_effective_numeric_sensor(const std::string &key, sensor::Sensor *sensor) {
+  this->effective_numeric_sensors_[key] = sensor;
+}
+void GreenhouseRuntime::set_live_binary_sensor(const std::string &key, binary_sensor::BinarySensor *sensor) {
+  this->live_binary_sensors_[key] = sensor;
+}
+void GreenhouseRuntime::set_effective_binary_sensor(const std::string &key, binary_sensor::BinarySensor *sensor) {
+  this->effective_binary_sensors_[key] = sensor;
+}
 
 bool GreenhouseRuntime::is_test_ui_enabled() const { return this->test_ui_enabled_; }
 bool GreenhouseRuntime::is_test_mode_active() const { return this->test_ui_enabled_ && this->test_mode_active_; }
@@ -975,6 +1024,86 @@ std::string GreenhouseRuntime::build_test_state_json_() const {
     cJSON_AddItemToObject(bools, pair.first.c_str(), entry);
   }
   cJSON_AddItemToObject(root, "bool_overrides", bools);
+
+  cJSON *numeric_sensors = cJSON_CreateObject();
+  for (const auto &pair : this->effective_numeric_sensors_) {
+    const std::string &key = pair.first;
+    sensor::Sensor *effective_sensor = pair.second;
+    sensor::Sensor *live_sensor = nullptr;
+    auto live_it = this->live_numeric_sensors_.find(key);
+    if (live_it != this->live_numeric_sensors_.end()) {
+      live_sensor = live_it->second;
+    }
+    auto override_it = this->numeric_test_overrides_.find(key);
+    const bool override_enabled = this->is_test_mode_active() &&
+      override_it != this->numeric_test_overrides_.end() &&
+      override_it->second.enabled;
+    const bool live_available = live_sensor != nullptr && live_sensor->has_state();
+    const bool effective_available = override_enabled || (effective_sensor != nullptr && effective_sensor->has_state()) || live_available;
+    const float manual_value = override_it != this->numeric_test_overrides_.end()
+      ? override_it->second.value
+      : (live_available ? live_sensor->state : 0.0f);
+    const float live_value = live_available ? live_sensor->state : 0.0f;
+    float effective_value = manual_value;
+    if (!override_enabled) {
+      if (effective_sensor != nullptr && effective_sensor->has_state()) {
+        effective_value = effective_sensor->state;
+      } else if (live_available) {
+        effective_value = live_value;
+      }
+    }
+
+    cJSON *entry = cJSON_CreateObject();
+    cJSON_AddBoolToObject(entry, "override_enabled", override_enabled);
+    cJSON_AddStringToObject(entry, "source", override_enabled ? "manual" : "live");
+    cJSON_AddBoolToObject(entry, "live_available", live_available);
+    cJSON_AddBoolToObject(entry, "effective_available", effective_available);
+    cJSON_AddNumberToObject(entry, "live_value", live_value);
+    cJSON_AddNumberToObject(entry, "manual_value", manual_value);
+    cJSON_AddNumberToObject(entry, "effective_value", effective_value);
+    cJSON_AddItemToObject(numeric_sensors, key.c_str(), entry);
+  }
+  cJSON_AddItemToObject(root, "numeric_sensors", numeric_sensors);
+
+  cJSON *bool_sensors = cJSON_CreateObject();
+  for (const auto &pair : this->effective_binary_sensors_) {
+    const std::string &key = pair.first;
+    binary_sensor::BinarySensor *effective_sensor = pair.second;
+    binary_sensor::BinarySensor *live_sensor = nullptr;
+    auto live_it = this->live_binary_sensors_.find(key);
+    if (live_it != this->live_binary_sensors_.end()) {
+      live_sensor = live_it->second;
+    }
+    auto override_it = this->bool_test_overrides_.find(key);
+    const bool override_enabled = this->is_test_mode_active() &&
+      override_it != this->bool_test_overrides_.end() &&
+      override_it->second.enabled;
+    const bool live_available = live_sensor != nullptr && live_sensor->has_state();
+    const bool effective_available = override_enabled || (effective_sensor != nullptr && effective_sensor->has_state()) || live_available;
+    const bool manual_value = override_it != this->bool_test_overrides_.end()
+      ? override_it->second.value
+      : (live_available ? live_sensor->state : false);
+    const bool live_value = live_available ? live_sensor->state : false;
+    bool effective_value = manual_value;
+    if (!override_enabled) {
+      if (effective_sensor != nullptr && effective_sensor->has_state()) {
+        effective_value = effective_sensor->state;
+      } else if (live_available) {
+        effective_value = live_value;
+      }
+    }
+
+    cJSON *entry = cJSON_CreateObject();
+    cJSON_AddBoolToObject(entry, "override_enabled", override_enabled);
+    cJSON_AddStringToObject(entry, "source", override_enabled ? "manual" : "live");
+    cJSON_AddBoolToObject(entry, "live_available", live_available);
+    cJSON_AddBoolToObject(entry, "effective_available", effective_available);
+    cJSON_AddBoolToObject(entry, "live_value", live_value);
+    cJSON_AddBoolToObject(entry, "manual_value", manual_value);
+    cJSON_AddBoolToObject(entry, "effective_value", effective_value);
+    cJSON_AddItemToObject(bool_sensors, key.c_str(), entry);
+  }
+  cJSON_AddItemToObject(root, "bool_sensors", bool_sensors);
 
   char *rendered = cJSON_PrintUnformatted(root);
   std::string output = rendered != nullptr ? rendered : "{}";

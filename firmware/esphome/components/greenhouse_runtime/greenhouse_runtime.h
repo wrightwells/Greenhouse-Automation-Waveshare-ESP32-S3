@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "esp_http_server.h"
+#include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/sensor/sensor.h"
 #include "esphome/core/component.h"
 
 namespace esphome {
@@ -60,6 +62,10 @@ class GreenhouseRuntime : public Component {
   void set_flush_interval_seconds(uint32_t flush_interval_seconds);
   void set_namespace_name(const std::string &namespace_name);
   void set_test_ui_enabled(bool test_ui_enabled);
+  void set_live_numeric_sensor(const std::string &key, sensor::Sensor *sensor);
+  void set_effective_numeric_sensor(const std::string &key, sensor::Sensor *sensor);
+  void set_live_binary_sensor(const std::string &key, binary_sensor::BinarySensor *sensor);
+  void set_effective_binary_sensor(const std::string &key, binary_sensor::BinarySensor *sensor);
 
   bool log_event(const std::string &category, const std::string &level, const std::string &message,
                  const std::string &source);
@@ -138,6 +144,10 @@ class GreenhouseRuntime : public Component {
   bool test_mode_active_{false};
   std::map<std::string, NumericTestOverride> numeric_test_overrides_;
   std::map<std::string, BoolTestOverride> bool_test_overrides_;
+  std::map<std::string, sensor::Sensor *> live_numeric_sensors_;
+  std::map<std::string, sensor::Sensor *> effective_numeric_sensors_;
+  std::map<std::string, binary_sensor::BinarySensor *> live_binary_sensors_;
+  std::map<std::string, binary_sensor::BinarySensor *> effective_binary_sensors_;
   bool logging_faulted_{false};
   bool pruning_active_{false};
   size_t rollover_count_{0};

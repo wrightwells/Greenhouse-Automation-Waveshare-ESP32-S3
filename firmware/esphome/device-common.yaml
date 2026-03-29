@@ -111,6 +111,26 @@ greenhouse_runtime:
   flush_interval_seconds: 60
   namespace_name: gh_runtime
   test_ui_enabled: ${test_ui_enabled}
+  live_numeric_sensors:
+    high_air_temperature: high_air_temperature_physical
+    high_air_humidity: high_air_humidity_physical
+    low_air_temperature: low_air_temperature_physical
+    low_air_humidity: low_air_humidity_physical
+    intake_air_temperature: intake_air_temperature_physical
+    soil_moisture_percent: soil_moisture_percent_physical
+    flow_rate_lpm: flow_rate_lpm_physical
+  effective_numeric_sensors:
+    high_air_temperature: high_air_temperature
+    high_air_humidity: high_air_humidity
+    low_air_temperature: low_air_temperature
+    low_air_humidity: low_air_humidity
+    intake_air_temperature: intake_air_temperature
+    soil_moisture_percent: soil_moisture_percent
+    flow_rate_lpm: flow_rate_lpm
+  live_binary_sensors:
+    door_state: door_state_physical
+  effective_binary_sensors:
+    door_state: door_state
 
 packages:
   sensors: !include packages/sensors.yaml
