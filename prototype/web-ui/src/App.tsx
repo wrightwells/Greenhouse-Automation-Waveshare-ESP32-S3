@@ -13,15 +13,34 @@ import { RecoveryPage } from "./pages/RecoveryPage";
 import { RulesPage } from "./pages/RulesPage";
 import { StatusPage } from "./pages/StatusPage";
 import {
+  BooleanSensorKey,
   DeviceConfig,
   DeviceState,
   EventCategory,
   EventLogEntry,
   EventLogState,
+  NumericSensorKey,
   RouteId,
   RuleRow,
+  SensorInputMode,
   ValidationErrors
 } from "./types";
+
+const numericSensorKeys: NumericSensorKey[] = [
+  "highAirTemperature",
+  "highAirHumidity",
+  "lowAirTemperature",
+  "lowAirHumidity",
+  "intakeAirTemperature",
+  "soilMoisture",
+  "soilMoistureRaw",
+  "flowRateLpm",
+  "estimatedWindowPosition",
+  "uptimeHours",
+  "wifiRssi"
+];
+
+const booleanSensorKeys: BooleanSensorKey[] = ["doorState"];
 
 function getInitialRoute(): RouteId {
   const hash = window.location.hash.replace("#", "") as RouteId;
@@ -46,7 +65,14 @@ function loadState(): DeviceState {
     if (!raw) {
       return defaultDeviceState;
     }
-    return JSON.parse(raw) as DeviceState;
+    const parsed = JSON.parse(raw) as Partial<DeviceState>;
+    return {
+      ...defaultDeviceState,
+      ...parsed,
+      liveSensors: { ...defaultDeviceState.liveSensors, ...(parsed.liveSensors ?? parsed.sensors ?? {}) },
+      sensors: { ...defaultDeviceState.sensors, ...(parsed.sensors ?? {}) },
+      sensorControls: { ...defaultDeviceState.sensorControls, ...(parsed.sensorControls ?? {}) }
+    };
   } catch {
     return defaultDeviceState;
   }
@@ -159,10 +185,252 @@ function applyBoundedEventLog(log: EventLogState, entry: EventLogEntry): EventLo
   };
 }
 
+function deriveEffectiveSensors(current: DeviceState): DeviceState["sensors"] {
+  const nextSensors = { ...current.liveSensors };
+
+  for (const key of numericSensorKeys) {
+    const control = current.sensorControls[key];
+    nextSensors[key] = control.mode === "manual" ? control.manualValue : current.liveSensors[key];
+  }
+
+  for (const key of booleanSensorKeys) {
+    const control = current.sensorControls[key];
+    nextSensors[key] = control.mode === "manual" ? control.manualValue : current.liveSensors[key];
+  }
+
+  return nextSensors;
+}
+
+function getRuleFieldValue(rule: RuleRow, current: DeviceState, sensors: DeviceState["sensors"]): number | boolean | null {
+  switch (rule.field) {
+    case "highAirTemperature":
+    case "lowAirTemperature":
+    case "highAirHumidity":
+    case "lowAirHumidity":
+    case "intakeAirTemperature":
+    case "soilMoisture":
+    case "flowRateLpm":
+    case "doorState":
+    case "estimatedWindowPosition":
+      return sensors[rule.field];
+    case "manualModeActive":
+      return current.flags.manualModeActive;
+    case "sensorFaultActive":
+      return current.faults.sensorFaultActive;
+    case "irrigationPump":
+      return current.outputs.irrigationPump;
+    case "intakeFan":
+      return current.outputs.intakeFan;
+    case "exhaustFan":
+      return current.outputs.exhaustFan;
+    default:
+      return null;
+  }
+}
+
+function doesRuleMatch(rule: RuleRow, current: DeviceState, sensors: DeviceState["sensors"]): boolean {
+  const value = getRuleFieldValue(rule, current, sensors);
+  if (value === null) {
+    return false;
+  }
+
+  switch (rule.operator) {
+    case "above":
+      return typeof value === "number" && value > rule.threshold;
+    case "below":
+      return typeof value === "number" && value < rule.threshold;
+    case "inside_range":
+      return typeof value === "number" && rule.rangeMin !== undefined && rule.rangeMax !== undefined
+        && value >= rule.rangeMin && value <= rule.rangeMax;
+    case "outside_range":
+      return typeof value === "number" && rule.rangeMin !== undefined && rule.rangeMax !== undefined
+        && (value < rule.rangeMin || value > rule.rangeMax);
+    case "boolean_is":
+      return typeof value === "boolean" && value === Boolean(rule.boolValue);
+    case "valid":
+      return typeof value === "boolean" ? true : Number.isFinite(value);
+    case "invalid":
+      return typeof value === "boolean" ? false : !Number.isFinite(value);
+    default:
+      return false;
+  }
+}
+
+function recomputePrototypeState(current: DeviceState): DeviceState {
+  const sensors = deriveEffectiveSensors(current);
+  let nextState: DeviceState = {
+    ...current,
+    sensors
+  };
+
+  const manualOrInhibited = !current.flags.automationEnabled
+    || current.flags.manualModeActive
+    || !current.flags.ruleEngineEnabled;
+
+  let nextOutputs = current.outputs;
+  let requestedWindowPosition = current.config.requestedWindowPosition;
+  let lastIrrigationEventTime = current.lastIrrigationEventTime;
+  let lastVentilationEventTime = current.lastVentilationEventTime;
+  let lastWindowActionTime = current.lastWindowActionTime;
+
+  let ruleEngineState: DeviceState["ruleEngine"]["state"] = "rule_engine_active";
+  if (!current.flags.ruleEngineEnabled) {
+    ruleEngineState = "rule_engine_inhibited";
+  } else if (current.faults.ruleEngineFaultActive) {
+    ruleEngineState = "rule_engine_degraded";
+  }
+
+  let automationSource: DeviceState["ruleEngine"]["automationSource"] = "local_rules";
+  if (current.flags.manualModeActive) {
+    automationSource = "manual_mode";
+  } else if (!current.flags.ruleEngineEnabled || !current.flags.automationEnabled) {
+    automationSource = "fallback_defaults";
+  }
+
+  let lastAutomationDecisionText = "No active rules matched current sensor state";
+
+  if (manualOrInhibited) {
+    if (current.flags.manualModeActive) {
+      lastAutomationDecisionText = "Manual mode active; automatic rules not applied";
+    } else if (!current.flags.ruleEngineEnabled) {
+      lastAutomationDecisionText = "Rule engine disabled; automatic rules not applied";
+    } else {
+      lastAutomationDecisionText = "Automation disabled; current outputs held";
+    }
+  } else {
+    const sortedRules = [...current.ruleEngine.rules]
+      .filter((rule) => rule.enabled)
+      .sort((left, right) => left.order - right.order);
+
+    const derivedOutputs = {
+      intakeFan: false,
+      exhaustFan: false,
+      irrigationPump: false,
+      windowOpenRelay: false,
+      windowCloseRelay: false
+    };
+    const matchedDecisions: string[] = [];
+    let irrigationInhibited = false;
+    let ventilationWindowInhibited = false;
+
+    for (const rule of sortedRules) {
+      if (!doesRuleMatch(rule, current, sensors)) {
+        continue;
+      }
+
+      switch (rule.action) {
+        case "turn_irrigation_on":
+          if (!irrigationInhibited && current.flags.irrigationAutomationEnabled) {
+            derivedOutputs.irrigationPump = true;
+            lastIrrigationEventTime = new Date().toLocaleString();
+            matchedDecisions.push(`${rule.description}: irrigation ON`);
+          }
+          break;
+        case "turn_irrigation_off":
+          derivedOutputs.irrigationPump = false;
+          matchedDecisions.push(`${rule.description}: irrigation OFF`);
+          break;
+        case "turn_intake_fan_on":
+          if (!ventilationWindowInhibited && current.flags.ventilationAutomationEnabled) {
+            derivedOutputs.intakeFan = true;
+            lastVentilationEventTime = new Date().toLocaleString();
+            matchedDecisions.push(`${rule.description}: intake fan ON`);
+          }
+          break;
+        case "turn_intake_fan_off":
+          derivedOutputs.intakeFan = false;
+          matchedDecisions.push(`${rule.description}: intake fan OFF`);
+          break;
+        case "turn_exhaust_fan_on":
+          if (!ventilationWindowInhibited && current.flags.ventilationAutomationEnabled) {
+            derivedOutputs.exhaustFan = true;
+            lastVentilationEventTime = new Date().toLocaleString();
+            matchedDecisions.push(`${rule.description}: exhaust fan ON`);
+          }
+          break;
+        case "turn_exhaust_fan_off":
+          derivedOutputs.exhaustFan = false;
+          matchedDecisions.push(`${rule.description}: exhaust fan OFF`);
+          break;
+        case "request_window_open":
+          if (!ventilationWindowInhibited && current.flags.windowAutomationEnabled) {
+            requestedWindowPosition = 100;
+            derivedOutputs.windowOpenRelay = true;
+            derivedOutputs.windowCloseRelay = false;
+            lastWindowActionTime = new Date().toLocaleString();
+            matchedDecisions.push(`${rule.description}: window OPEN`);
+          }
+          break;
+        case "request_window_close":
+          if (!ventilationWindowInhibited && current.flags.windowAutomationEnabled) {
+            requestedWindowPosition = 0;
+            derivedOutputs.windowOpenRelay = false;
+            derivedOutputs.windowCloseRelay = true;
+            lastWindowActionTime = new Date().toLocaleString();
+            matchedDecisions.push(`${rule.description}: window CLOSE`);
+          }
+          break;
+        case "request_window_target":
+          if (!ventilationWindowInhibited && current.flags.windowAutomationEnabled) {
+            requestedWindowPosition = rule.actionTarget ?? requestedWindowPosition;
+            derivedOutputs.windowOpenRelay = requestedWindowPosition > sensors.estimatedWindowPosition;
+            derivedOutputs.windowCloseRelay = requestedWindowPosition < sensors.estimatedWindowPosition;
+            lastWindowActionTime = new Date().toLocaleString();
+            matchedDecisions.push(`${rule.description}: window target ${requestedWindowPosition}%`);
+          }
+          break;
+        case "inhibit_irrigation":
+          irrigationInhibited = true;
+          derivedOutputs.irrigationPump = false;
+          matchedDecisions.push(`${rule.description}: irrigation inhibited`);
+          break;
+        case "inhibit_ventilation_window":
+          ventilationWindowInhibited = true;
+          derivedOutputs.intakeFan = false;
+          derivedOutputs.exhaustFan = false;
+          derivedOutputs.windowOpenRelay = false;
+          derivedOutputs.windowCloseRelay = false;
+          matchedDecisions.push(`${rule.description}: ventilation/window inhibited`);
+          break;
+        case "raise_log_event":
+          matchedDecisions.push(`${rule.description}: diagnostic marker`);
+          break;
+        default:
+          break;
+      }
+    }
+
+    nextOutputs = derivedOutputs;
+    if (matchedDecisions.length > 0) {
+      lastAutomationDecisionText = matchedDecisions.join(" | ");
+    }
+  }
+
+  nextState = {
+    ...nextState,
+    outputs: nextOutputs,
+    config: {
+      ...nextState.config,
+      requestedWindowPosition
+    },
+    ruleEngine: {
+      ...nextState.ruleEngine,
+      state: ruleEngineState,
+      automationSource,
+      lastAutomationDecisionText
+    },
+    lastIrrigationEventTime,
+    lastVentilationEventTime,
+    lastWindowActionTime
+  };
+
+  return nextState;
+}
+
 export default function App() {
   const [route, setRoute] = useState<RouteId>(getInitialRoute());
   const [logFilter, setLogFilter] = useState<EventCategory | "all">("all");
-  const [state, setState] = useState<DeviceState>(loadState);
+  const [state, setState] = useState<DeviceState>(() => recomputePrototypeState(loadState()));
   const [draftConfig, setDraftConfig] = useState<DeviceConfig>(loadState().config);
   const [lastSavedAt, setLastSavedAt] = useState<string>("not saved this session");
 
@@ -218,7 +486,7 @@ export default function App() {
       return;
     }
 
-    setState((current) => ({
+    setState((current) => recomputePrototypeState({
       ...current,
       config: draftConfig,
       eventLog: {
@@ -271,15 +539,9 @@ export default function App() {
       | "eventLoggingEnabled",
     value: boolean
   ) {
-    setState((current) => ({
+    setState((current) => recomputePrototypeState({
       ...current,
       flags: { ...current.flags, [key]: value },
-      ruleEngine: key === "ruleEngineEnabled"
-        ? {
-            ...current.ruleEngine,
-            state: value ? "rule_engine_active" : "rule_engine_inhibited"
-          }
-        : current.ruleEngine,
       eventLog: key === "eventLoggingEnabled"
         ? {
             ...current.eventLog,
@@ -436,14 +698,14 @@ export default function App() {
 
   function handleAdminAction(action: "restart" | "factory-reset" | "ota-toggle") {
     if (action === "factory-reset") {
-      setState(defaultDeviceState);
+      setState(recomputePrototypeState(defaultDeviceState));
       setDraftConfig(defaultDeviceState.config);
       setLastSavedAt("reset to defaults");
       return;
     }
 
     if (action === "restart") {
-      setState((current) => ({
+      setState((current) => recomputePrototypeState({
         ...current,
         outputs: {
           intakeFan: false,
@@ -462,7 +724,7 @@ export default function App() {
       return;
     }
 
-    setState((current) => ({
+    setState((current) => recomputePrototypeState({
       ...current,
       flags: {
         ...current.flags,
@@ -485,7 +747,7 @@ export default function App() {
 
   function handleInjectFault(fault: "sensor" | "irrigation" | "clear") {
     if (fault === "clear") {
-      setState((current) => ({
+      setState((current) => recomputePrototypeState({
         ...current,
         faults: {
           ...current.faults,
@@ -501,7 +763,7 @@ export default function App() {
     }
 
     if (fault === "sensor") {
-      setState((current) => ({
+      setState((current) => recomputePrototypeState({
         ...current,
         faults: {
           ...current.faults,
@@ -518,7 +780,7 @@ export default function App() {
       return;
     }
 
-    setState((current) => ({
+    setState((current) => recomputePrototypeState({
       ...current,
       faults: {
         ...current.faults,
@@ -547,7 +809,7 @@ export default function App() {
       cooldownSeconds: 60
     };
 
-    setState((current) => ({
+    setState((current) => recomputePrototypeState({
       ...current,
       ruleEngine: {
         ...current.ruleEngine,
@@ -562,19 +824,19 @@ export default function App() {
       const nextRules = current.ruleEngine.rules
         .filter((rule) => rule.id !== id)
         .map((rule, index) => ({ ...rule, order: index + 1 }));
-      return {
+      return recomputePrototypeState({
         ...current,
         ruleEngine: {
           ...current.ruleEngine,
           rules: nextRules
         }
-      };
+      });
     });
     appendEvent("rule_engine", "Rule row deleted locally", "local_web");
   }
 
   function handleToggleRule(id: string) {
-    setState((current) => ({
+    setState((current) => recomputePrototypeState({
       ...current,
       ruleEngine: {
         ...current.ruleEngine,
@@ -596,25 +858,65 @@ export default function App() {
       }
       const [item] = rules.splice(index, 1);
       rules.splice(target, 0, item);
-      return {
+      return recomputePrototypeState({
         ...current,
         ruleEngine: {
           ...current.ruleEngine,
           rules: rules.map((rule, order) => ({ ...rule, order: order + 1 }))
         }
-      };
+      });
     });
     appendEvent("rule_engine", `Rule row moved ${direction}`, "local_web");
   }
 
   function handleRuleChange(id: string, patch: Partial<RuleRow>) {
-    setState((current) => ({
+    setState((current) => recomputePrototypeState({
       ...current,
       ruleEngine: {
         ...current.ruleEngine,
         rules: current.ruleEngine.rules.map((rule) =>
           rule.id === id ? { ...rule, ...patch } : rule
         )
+      }
+    }));
+  }
+
+  function handleSensorModeChange(key: NumericSensorKey | BooleanSensorKey, mode: SensorInputMode) {
+    setState((current) => recomputePrototypeState({
+      ...current,
+      sensorControls: {
+        ...current.sensorControls,
+        [key]: {
+          ...current.sensorControls[key],
+          mode
+        }
+      }
+    }));
+    appendEvent("sensor", `${key} input source set to ${mode}`, "local_web");
+  }
+
+  function handleNumericSensorManualValueChange(key: NumericSensorKey, value: number) {
+    setState((current) => recomputePrototypeState({
+      ...current,
+      sensorControls: {
+        ...current.sensorControls,
+        [key]: {
+          ...current.sensorControls[key],
+          manualValue: value
+        }
+      }
+    }));
+  }
+
+  function handleBooleanSensorManualValueChange(key: BooleanSensorKey, value: boolean) {
+    setState((current) => recomputePrototypeState({
+      ...current,
+      sensorControls: {
+        ...current.sensorControls,
+        [key]: {
+          ...current.sensorControls[key],
+          manualValue: value
+        }
       }
     }));
   }
@@ -713,7 +1015,15 @@ export default function App() {
       />
     );
   } else if (route === "diagnostics") {
-    page = <DiagnosticsPage state={state} onInjectFault={handleInjectFault} />;
+    page = (
+      <DiagnosticsPage
+        state={state}
+        onInjectFault={handleInjectFault}
+        onSensorModeChange={handleSensorModeChange}
+        onNumericSensorManualValueChange={handleNumericSensorManualValueChange}
+        onBooleanSensorManualValueChange={handleBooleanSensorManualValueChange}
+      />
+    );
   }
 
   return (

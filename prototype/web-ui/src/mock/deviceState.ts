@@ -39,6 +39,20 @@ const initialEntries: EventLogEntry[] = [
 ];
 
 export const defaultDeviceState: DeviceState = {
+  liveSensors: {
+    highAirTemperature: 31.2,
+    highAirHumidity: 79,
+    lowAirTemperature: 26.7,
+    lowAirHumidity: 82,
+    intakeAirTemperature: 24.8,
+    soilMoisture: 34,
+    soilMoistureRaw: 2.14,
+    flowRateLpm: 0,
+    estimatedWindowPosition: 42,
+    uptimeHours: 123.4,
+    wifiRssi: -61,
+    doorState: false
+  },
   sensors: {
     highAirTemperature: 31.2,
     highAirHumidity: 79,
@@ -50,7 +64,22 @@ export const defaultDeviceState: DeviceState = {
     flowRateLpm: 0,
     estimatedWindowPosition: 42,
     uptimeHours: 123.4,
-    wifiRssi: -61
+    wifiRssi: -61,
+    doorState: false
+  },
+  sensorControls: {
+    highAirTemperature: { mode: "live", manualValue: 31.2 },
+    highAirHumidity: { mode: "live", manualValue: 79 },
+    lowAirTemperature: { mode: "live", manualValue: 26.7 },
+    lowAirHumidity: { mode: "live", manualValue: 82 },
+    intakeAirTemperature: { mode: "live", manualValue: 24.8 },
+    soilMoisture: { mode: "live", manualValue: 34 },
+    soilMoistureRaw: { mode: "live", manualValue: 2.14 },
+    flowRateLpm: { mode: "live", manualValue: 0 },
+    estimatedWindowPosition: { mode: "live", manualValue: 42 },
+    uptimeHours: { mode: "live", manualValue: 123.4 },
+    wifiRssi: { mode: "live", manualValue: -61 },
+    doorState: { mode: "live", manualValue: false }
   },
   outputs: {
     intakeFan: true,

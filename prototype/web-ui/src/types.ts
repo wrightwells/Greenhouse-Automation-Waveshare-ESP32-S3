@@ -74,6 +74,21 @@ export type EventSource =
   | "home_assistant"
   | "restore"
   | "default_fallback";
+export type SensorInputMode = "live" | "manual";
+export type NumericSensorKey =
+  | "highAirTemperature"
+  | "highAirHumidity"
+  | "lowAirTemperature"
+  | "lowAirHumidity"
+  | "intakeAirTemperature"
+  | "soilMoisture"
+  | "soilMoistureRaw"
+  | "flowRateLpm"
+  | "estimatedWindowPosition"
+  | "uptimeHours"
+  | "wifiRssi";
+export type BooleanSensorKey = "doorState";
+export type SensorControlKey = NumericSensorKey | BooleanSensorKey;
 
 export interface SensorState {
   highAirTemperature: number;
@@ -87,6 +102,32 @@ export interface SensorState {
   estimatedWindowPosition: number;
   uptimeHours: number;
   wifiRssi: number;
+  doorState: boolean;
+}
+
+export interface NumericSensorControl {
+  mode: SensorInputMode;
+  manualValue: number;
+}
+
+export interface BooleanSensorControl {
+  mode: SensorInputMode;
+  manualValue: boolean;
+}
+
+export interface SensorControlState {
+  highAirTemperature: NumericSensorControl;
+  highAirHumidity: NumericSensorControl;
+  lowAirTemperature: NumericSensorControl;
+  lowAirHumidity: NumericSensorControl;
+  intakeAirTemperature: NumericSensorControl;
+  soilMoisture: NumericSensorControl;
+  soilMoistureRaw: NumericSensorControl;
+  flowRateLpm: NumericSensorControl;
+  estimatedWindowPosition: NumericSensorControl;
+  uptimeHours: NumericSensorControl;
+  wifiRssi: NumericSensorControl;
+  doorState: BooleanSensorControl;
 }
 
 export interface OutputState {
@@ -223,7 +264,9 @@ export interface EventLogState {
 }
 
 export interface DeviceState {
+  liveSensors: SensorState;
   sensors: SensorState;
+  sensorControls: SensorControlState;
   outputs: OutputState;
   connectivity: ConnectivityState;
   faults: FaultState;

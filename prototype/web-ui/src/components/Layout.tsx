@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { RouteId } from "../types";
+import greenhouseToolsLogo from "../assets/greenhouse-tools.png";
 
 const navItems: Array<{ id: RouteId; label: string }> = [
   { id: "overview", label: "Overview" },
@@ -26,8 +27,14 @@ export function Layout({ route, onNavigate, children }: LayoutProps) {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-kicker">Local Prototype</div>
-          <h1>Greenhouse Controller</h1>
-          <p>Web status, control, and recovery UI preview</p>
+          <div className="brand-title-row">
+            <img
+              src={greenhouseToolsLogo}
+              alt="Greenhouse tools logo"
+              className="brand-logo"
+            />
+            <h1>Greenhouse Controller</h1>
+          </div>
         </div>
 
         <nav className="nav-list" aria-label="Primary">
