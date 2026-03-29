@@ -140,6 +140,10 @@ OTA validation scenarios are documented in [docs/test-plan.md](/home/ww/src/Gree
 
 Primary integration is the ESPHome native API. MQTT is supplementary and must not be required for core control.
 
+Quick-start setup guide:
+
+- [Home Assistant setup guide](/home/ww/src/Greenhouse-Automation-Waveshare-ESP32-S3/docs/home-assistant-setup.md)
+
 Planned Home Assistant exposure includes:
 
 - environmental sensors
