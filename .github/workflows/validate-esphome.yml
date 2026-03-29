@@ -7,8 +7,14 @@ on:
     branches: ["main"]
 
 jobs:
-  validate:
+  validate-and-compile:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - firmware/esphome/device-ethernet.yaml
+          - firmware/esphome/device-wifi.yaml
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,4 +31,7 @@ jobs:
         run: cp firmware/esphome/secrets.example.yaml firmware/esphome/secrets.yaml
 
       - name: Validate config
-        run: esphome config firmware/esphome/device.yaml
+        run: esphome config ${{ matrix.profile }}
+
+      - name: Compile firmware
+        run: esphome compile ${{ matrix.profile }}
